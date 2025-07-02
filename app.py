@@ -1,11 +1,8 @@
-# streamlit_ai_dashboard.py
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
-from sklearn.ensemble import IsolationForest
 from huggingface_hub import InferenceClient
-import openai, cohere, replicate
+import cohere, replicate
 
 # --- CONFIG ---
 st.set_page_config(page_title="Solar AI Dashboard", layout="wide")
@@ -13,12 +10,10 @@ st.title("☀️ AI-Powered Solar Performance & Weather Analyzer")
 
 # --- API KEY ENTRY ---
 st.sidebar.header("🔐 API Keys (Optional)")
-openai_key = st.sidebar.text_input("OpenAI API Key", type="password")
 cohere_key = st.sidebar.text_input("Cohere API Key", type="password")
 hug_key = st.sidebar.text_input("Hugging Face API Key", type="password")
 replicate_key = st.sidebar.text_input("Replicate API Key", type="password")
 
-if openai_key: openai.api_key = openai_key
 if cohere_key: co = cohere.Client(cohere_key)
 if hug_key: hf = InferenceClient(token=hug_key)
 if replicate_key: rep = replicate.Client(api_token=replicate_key)
@@ -73,34 +68,104 @@ sdate, edate = pd.to_datetime(start), pd.to_datetime(end)
 solar_filtered = solar_pivot[(solar_pivot['last_changed'] >= sdate) & (solar_pivot['last_changed'] <= edate)]
 weather_filtered = weather_data[(weather_data['period_end'] >= sdate) & (weather_data['period_end'] <= edate)]
 
-# --- PARAMETER SELECTION ---
-power_params = [c for c in solar_pivot.columns if c != 'last_changed']
-weather_params = [c for c in weather_data.columns if c not in ['period_end', 'period']]
-selected_power = st.sidebar.multiselect("⚡ Power Parameters", power_params, default=power_params[:3])
-selected_weather = st.sidebar.multiselect("🌦️ Weather Parameters", weather_params, default=weather_params[:3])
+# --- PLOTLY CHART FUNCTION ---
+def plot_with_slider(df, x_col, y_col, chart_type, title):
+    if chart_type == "Line":
+        mode, fill = "lines", None
+    elif chart_type == "Bar":
+        mode, fill = None, None
+    elif chart_type == "Scatter":
+        mode, fill = "markers", None
+    elif chart_type == "Area":
+        mode, fill = "lines", "tozeroy"
+    else:
+        mode, fill = "lines", None
 
-# --- CHARTING ---
-st.subheader("📊 Power Charts")
-for param in selected_power:
-    st.plotly_chart(px.line(solar_filtered, x='last_changed', y=param, title=param), use_container_width=True)
-st.subheader("🌤️ Weather Charts")
-for param in selected_weather:
-    st.plotly_chart(px.line(weather_filtered, x='period_end', y=param, title=param), use_container_width=True)
+    fig = go.Figure()
+    if chart_type == "Bar":
+        fig.add_trace(go.Bar(x=df[x_col], y=df[y_col], name=y_col))
+    else:
+        fig.add_trace(go.Scatter(
+            x=df[x_col], y=df[y_col], 
+            mode=mode, 
+            fill=fill,
+            name=y_col
+        ))
+    fig.update_layout(
+        title=title,
+        xaxis=dict(
+            title=x_col,
+            rangeslider=dict(visible=True),
+            rangeselector=dict(
+                buttons=list([
+                    dict(count=1, label="1d", step="day", stepmode="backward"),
+                    dict(count=7, label="1w", step="day", stepmode="backward"),
+                    dict(count=1, label="1m", step="month", stepmode="backward"),
+                    dict(step="all")
+                ])
+            ),
+            type="date"
+        ),
+        yaxis=dict(title=y_col),
+        hovermode='x unified'
+    )
+    return fig
 
-# --- AI ASSISTANT ---
+# --- PARAMETER SELECTION & MULTI-TAB CHARTS ---
+st.sidebar.header("📊 Chart Controls")
+chart_types = ['Solar', 'Weather']
+selected_chart_type = st.sidebar.selectbox("Chart type", chart_types)
+
+if selected_chart_type == 'Solar':
+    available_params = [col for col in solar_filtered.columns if col != 'last_changed']
+    x_axis = 'last_changed'
+    data = solar_filtered
+else:
+    available_params = [col for col in weather_filtered.columns if col not in ['period_end', 'period']]
+    x_axis = 'period_end'
+    data = weather_filtered
+
+num_charts = st.sidebar.number_input("How many charts?", min_value=1, max_value=min(5, len(available_params)), value=1)
+
+tab_labels = [f"Chart {i+1}" for i in range(num_charts)]
+selected_parameters = []
+selected_chart_types = []
+
+for i in range(num_charts):
+    param = st.sidebar.selectbox(f"Parameter for Chart {i+1}", available_params, key=f'param_{i}')
+    chart_type = st.sidebar.selectbox(f"Chart Type for Chart {i+1}", ["Line", "Bar", "Scatter", "Area"], key=f"ctype_{i}")
+    selected_parameters.append(param)
+    selected_chart_types.append(chart_type)
+
+tabs = st.tabs(tab_labels)
+for i, tab in enumerate(tabs):
+    with tab:
+        fig = plot_with_slider(data, x_axis, selected_parameters[i], selected_chart_types[i], f"{selected_parameters[i]} ({selected_chart_types[i]})")
+        st.plotly_chart(fig, use_container_width=True)
+
+# --- AI ASSISTANT (NO OPENAI) ---
 st.subheader("🤖 AI Data Analysis")
 question = st.text_input("Ask a question about your solar or weather data")
 if question:
-    if openai_key:
+    if cohere_key:
         with st.spinner("Thinking..."):
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": f"Using the uploaded solar power and weather data, answer: {question}"}]
-            )
-            st.success(response['choices'][0]['message']['content'])
+            response = co.chat(message=question)
+            st.success(response.text)
+    elif hug_key:
+        st.info("HuggingFace model integration goes here.")
+    elif replicate_key:
+        st.info("Replicate model integration goes here.")
     else:
-        st.info("Enter OpenAI key for smart responses")
+        st.info("Enter a model API key (Cohere, Hugging Face, or Replicate) for smart responses.")
 
-# --- FOOTER ---
+# --- SHARING INSTRUCTIONS ---
 st.markdown("---")
+st.markdown(
+    """
+    #### 👥 **Share this dashboard**
+    - Deploy your app using [Streamlit Community Cloud](https://share.streamlit.io/) or another hosting service.
+    - Once deployed, copy the app URL and share it with others—they'll be able to view and interact with your charts!
+    - _If running locally, others on your network can access it via your computer's IP address and the port shown in your terminal (e.g., `http://192.168.X.X:8501`)._
+    """
+)
 st.markdown("<center><small>Built by Hussein Akim — AI-enhanced Solar Insights</small></center>", unsafe_allow_html=True)
