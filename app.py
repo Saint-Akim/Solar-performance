@@ -60,6 +60,7 @@ def display_file_list(files, folder, filetype):
                 file_disk_action(folder, "delete_one", os.path.basename(fname))
                 st.cache_data.clear()
                 st.rerun()
+                st.stop()
 
 def upload_section(label, folder, filetype):
     st.write(f"### {label}")
@@ -71,21 +72,35 @@ def upload_section(label, folder, filetype):
             file_disk_action(folder, "delete_all")
             st.cache_data.clear()
             st.rerun()
+            st.stop()
+
+    # Use session state to force a new key on each successful upload
+    key_base = f"uploader_{filetype}"
+    if f"{key_base}_reset" not in st.session_state:
+        st.session_state[f"{key_base}_reset"] = 0
+
+    uploader_key = f"{key_base}_{st.session_state[f'{key_base}_reset']}"
+
     uploaded_files = st.file_uploader(
         f"Add/Replace {label}",
         type="csv",
         accept_multiple_files=True,
-        key=f"uploader_{filetype}"
+        key=uploader_key
     )
+
     if uploaded_files and check_file_size(uploaded_files):
         existing_names = [os.path.basename(f) for f in file_disk_action(folder, "load")]
         to_overwrite = [f.name for f in uploaded_files if f.name in existing_names]
         if to_overwrite:
             st.warning(f"File(s) will be overwritten: {', '.join(to_overwrite)}")
         save_files_to_disk(uploaded_files, folder)
-        st.success("Files uploaded and overwritten if duplicates existed. Re-analyzing data now.")
         st.cache_data.clear()
+        # Increment session state to reset uploader key
+        st.session_state[f"{key_base}_reset"] += 1
+        st.success("Files uploaded and overwritten if duplicates existed. Re-analyzing data now.")
         st.rerun()
+        st.stop()
+
     return file_disk_action(folder, "load")
 
 # ---- Sidebar: File Upload and Management ----
