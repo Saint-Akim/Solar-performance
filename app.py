@@ -104,7 +104,7 @@ try:
     anomaly_html = df_merged[df_merged['anomaly'] == -1].to_html(index=False)
     with st.expander("📄 View Anomaly Report"):
         st.write("Anomalous timestamps where performance deviated unexpectedly:")
-        st.dataframe(df_merged[df_merged['anomaly'] == -1'][['last_changed', 'expected_power_kw'] + selected_power])
+        st.dataframe(df_merged[df_merged['anomaly'] == -1][['last_changed', 'expected_power_kw'] + selected_power])
 except Exception as e:
     st.warning(f"Anomaly detection skipped: {e}")
 
