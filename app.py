@@ -3,6 +3,10 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
+# ---- Page Configuration ----
+st.set_page_config(page_title="Solar AI Dashboard", layout="wide")
+st.title("☀️ AI-Powered Solar Performance & Weather Analyzer")
+
 # ---- Folder Setup ----
 UPLOAD_ROOT = "uploads"
 SOLAR_DIR = os.path.join(UPLOAD_ROOT, "solar")
@@ -66,11 +70,11 @@ def upload_section(label, folder, filetype):
         st.success("Files uploaded.")
         st.rerun()
 
-    # Return up-to-date file list
     return load_files_from_disk(folder)
 
 # ---- Sidebar: API Keys ----
 st.sidebar.header("🔐 API Keys (Optional)")
+openai_key = st.sidebar.text_input("OpenAI API Key", type="password", key="openai_key")
 cohere_key = st.sidebar.text_input("Cohere API Key", type="password", key="cohere_key")
 hug_key = st.sidebar.text_input("Hugging Face API Key", type="password", key="hug_key")
 replicate_key = st.sidebar.text_input("Replicate API Key", type="password", key="replicate_key")
@@ -140,6 +144,29 @@ sdate, edate = pd.to_datetime(start), pd.to_datetime(end)
 solar_filtered = solar_pivot[(solar_pivot['last_changed'] >= sdate) & (solar_pivot['last_changed'] <= edate)]
 weather_filtered = weather_data[(weather_data['period_end'] >= sdate) & (weather_data['period_end'] <= edate)]
 
+# ---- Parameter Selection ----
+with st.sidebar.expander("🔆 Solar Chart Controls", expanded=True):
+    solar_params = [col for col in solar_filtered.columns if col != 'last_changed']
+    solar_num_charts = st.number_input("Number of Solar Charts", min_value=1, max_value=min(3, len(solar_params)), value=1, key="solar_num")
+    solar_chart_types = []
+    solar_selected_params = []
+    for i in range(solar_num_charts):
+        param = st.selectbox(f"Solar Parameter {i+1}", solar_params, key=f'solar_param_{i}')
+        ctype = st.selectbox(f"Chart Type {i+1}", ["Line", "Bar", "Scatter", "Area"], key=f'solar_ctype_{i}')
+        solar_selected_params.append(param)
+        solar_chart_types.append(ctype)
+
+with st.sidebar.expander("🌦️ Weather Chart Controls", expanded=True):
+    weather_params = [col for col in weather_filtered.columns if col not in ['period_end', 'period']]
+    weather_num_charts = st.number_input("Number of Weather Charts", min_value=1, max_value=min(3, len(weather_params)), value=1, key="weather_num")
+    weather_chart_types = []
+    weather_selected_params = []
+    for i in range(weather_num_charts):
+        param = st.selectbox(f"Weather Parameter {i+1}", weather_params, key=f'weather_param_{i}')
+        ctype = st.selectbox(f"Chart Type {i+1}", ["Line", "Bar", "Scatter", "Area"], key=f'weather_ctype_{i}')
+        weather_selected_params.append(param)
+        weather_chart_types.append(ctype)
+
 # ---- Chart Plot Function ----
 def plot_with_slider(df, x_col, y_col, chart_type, title):
     if chart_type == "Line":
@@ -183,29 +210,6 @@ def plot_with_slider(df, x_col, y_col, chart_type, title):
     )
     return fig
 
-# ---- Sidebar Controls for Solar & Weather ----
-with st.sidebar.expander("🔆 Solar Chart Controls", expanded=True):
-    solar_params = [col for col in solar_filtered.columns if col != 'last_changed']
-    solar_num_charts = st.number_input("Number of Solar Charts", min_value=1, max_value=min(3, len(solar_params)), value=1, key="solar_num")
-    solar_chart_types = []
-    solar_selected_params = []
-    for i in range(solar_num_charts):
-        param = st.selectbox(f"Solar Parameter {i+1}", solar_params, key=f'solar_param_{i}')
-        ctype = st.selectbox(f"Chart Type {i+1}", ["Line", "Bar", "Scatter", "Area"], key=f'solar_ctype_{i}')
-        solar_selected_params.append(param)
-        solar_chart_types.append(ctype)
-
-with st.sidebar.expander("🌦️ Weather Chart Controls", expanded=True):
-    weather_params = [col for col in weather_filtered.columns if col not in ['period_end', 'period']]
-    weather_num_charts = st.number_input("Number of Weather Charts", min_value=1, max_value=min(3, len(weather_params)), value=1, key="weather_num")
-    weather_chart_types = []
-    weather_selected_params = []
-    for i in range(weather_num_charts):
-        param = st.selectbox(f"Weather Parameter {i+1}", weather_params, key=f'weather_param_{i}')
-        ctype = st.selectbox(f"Chart Type {i+1}", ["Line", "Bar", "Scatter", "Area"], key=f'weather_ctype_{i}')
-        weather_selected_params.append(param)
-        weather_chart_types.append(ctype)
-
 # ---- Layout: Solar & Weather Charts Side by Side ----
 st.markdown("## Compare Solar & Weather Data")
 cols = st.columns(2)
@@ -227,11 +231,12 @@ with cols[1]:
             fig = plot_with_slider(weather_filtered, 'period_end', weather_selected_params[i], weather_chart_types[i], f"{weather_selected_params[i]} ({weather_chart_types[i]})")
             st.plotly_chart(fig, use_container_width=True, key=f"weather_chart_{i}")
 
-# ---- AI Assistant (Optional, no OpenAI) ----
-st.subheader("🤖 AI Data Analysis (Cohere/HuggingFace/Replicate)")
+# ---- AI Assistant ----
+st.subheader("🤖 AI Data Analysis")
 question = st.text_input("Ask a question about your solar or weather data")
 if question:
-    if cohere_key:
+    ai_model = st.selectbox("Choose AI Model", ["Cohere", "OpenAI"], key="ai_model")
+    if ai_model == "Cohere" and cohere_key:
         try:
             import cohere
             co = cohere.Client(cohere_key)
@@ -240,12 +245,20 @@ if question:
                 st.success(response.text)
         except Exception as e:
             st.error(f"Error with Cohere API: {e}")
-    elif hug_key:
-        st.info("HuggingFace model integration goes here.")
-    elif replicate_key:
-        st.info("Replicate model integration goes here.")
+    elif ai_model == "OpenAI" and openai_key:
+        try:
+            import openai
+            openai.api_key = openai_key
+            with st.spinner("Thinking..."):
+                response = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": f"Using the uploaded solar power and weather data, answer: {question}"}]
+                )
+                st.success(response.choices[0].message.content)
+        except Exception as e:
+            st.error(f"Error with OpenAI API: {e}")
     else:
-        st.info("Enter a model API key (Cohere, Hugging Face, or Replicate) for smart responses.")
+        st.info(f"Enter a valid {ai_model} API key for smart responses.")
 
 # ---- Sharing Instructions ----
 st.markdown("---")
@@ -254,7 +267,7 @@ st.markdown(
     #### 👥 **Share this dashboard**
     - Deploy your app using [Streamlit Community Cloud](https://streamlit.io/cloud) or another hosting service.
     - Once deployed, copy the app URL and share it with others—they'll be able to view and interact with your charts!
-    - _If running locally, others on your network can access it via your computer's IP address and the port shown in your terminal (e.g., `http://192.168.X.X:8501`)._
+    - _If running locally, others on your network can access it via your computer's IP address and the port shown in your terminal (e.g., `http://192.168.x.x:8501`)._
     """
 )
 st.markdown("<center><small>Built by Hussein Akim — AI-enhanced Solar Insights</small></center>", unsafe_allow_html=True)
