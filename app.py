@@ -12,6 +12,19 @@ PERFORMANCE_RATIO = 0.8
 TZ = 'Africa/Johannesburg'
 MAX_FILE_SIZE_MB = 10
 
+# ---- Weather Parameter Explainers ----
+WEATHER_PARAM_EXPLAINERS = {
+    "temperature": "🌡️ **Temperature:** High temperatures can reduce the efficiency of solar panels—typically by about 0.4% per °C above 25°C—resulting in lower energy output on hot days.",
+    "irradiance": "☀️ **Irradiance:** This measures the amount of sunlight hitting your panels. More sunlight generally means higher power output.",
+    "gti": "📈 **Global Tilted Irradiance (GTI):** The amount of solar energy received on a tilted surface, directly impacting solar production.",
+    "humidity": "💧 **Humidity:** High humidity can reduce sunlight through increased cloudiness, lowering panel output.",
+    "wind_speed": "💨 **Wind Speed:** Wind can cool panels, increasing their efficiency slightly, but too much wind may indicate storms or dust.",
+    "cloud_cover": "☁️ **Cloud Cover:** More clouds mean less sunlight reaches your panels, reducing output.",
+    "expected_power_kw": "🔋 **Expected Power:** This is a calculated value based on irradiance, system size, and performance ratio, showing what your system should ideally produce.",
+    "period_end": "🕒 **Period End:** The time this weather data was recorded.",
+    # Add more as needed.
+}
+
 # ---- Utility Functions ----
 def ensure_dirs():
     os.makedirs(SOLAR_DIR, exist_ok=True)
@@ -260,6 +273,20 @@ with cols[0]:
     if solar_filtered.empty:
         st.warning("No solar data available for the selected date range.")
     else:
+        # --- Sum Grid Power Chart ---
+        if 'sensor.fronius_grid_power' in solar_filtered.columns and 'sensor.goodwe_grid_power' in solar_filtered.columns:
+            solar_filtered['sum_grid_power'] = (
+                solar_filtered['sensor.fronius_grid_power'].fillna(0) +
+                solar_filtered['sensor.goodwe_grid_power'].fillna(0)
+            )
+            fig_sum_grid = plot_with_slider(
+                solar_filtered, 'last_changed', 'sum_grid_power',
+                'Line', "Sum of Fronius and GoodWe Grid Power", "#A020F0"
+            )
+            st.markdown("#### Sum of Fronius and GoodWe Grid Power")
+            st.plotly_chart(fig_sum_grid, use_container_width=True)
+            st.markdown("⚡ **This chart shows the combined grid power measured by both the Fronius and GoodWe sensors, providing a holistic view of your system's total grid contribution.**")
+        # --- Existing Solar Charts ---
         for i in range(solar_num_charts):
             fig = plot_with_slider(
                 solar_filtered, 'last_changed', solar_selected_params[i],
@@ -280,6 +307,11 @@ with cols[1]:
                 weather_colors[i]
             )
             st.plotly_chart(fig, use_container_width=True, key=f"weather_chart_{i}")
+            # Add explainer below each chart
+            param_key = weather_selected_params[i].lower()
+            explainer = WEATHER_PARAM_EXPLAINERS.get(param_key)
+            if explainer:
+                st.markdown(f"<div style='margin-bottom:2em'>{explainer}</div>", unsafe_allow_html=True)
 
 st.markdown("---")
 with st.expander("How to Share or Deploy This Dashboard"):
