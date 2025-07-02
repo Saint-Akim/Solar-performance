@@ -1,89 +1,98 @@
+import os
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from huggingface_hub import InferenceClient
-import cohere, replicate
 
-st.set_page_config(page_title="Solar AI Dashboard", layout="wide")
-st.title("☀️ AI-Powered Solar Performance & Weather Analyzer")
+# ---- Folder Setup ----
+UPLOAD_ROOT = "uploads"
+SOLAR_DIR = os.path.join(UPLOAD_ROOT, "solar")
+WEATHER_DIR = os.path.join(UPLOAD_ROOT, "weather")
+os.makedirs(SOLAR_DIR, exist_ok=True)
+os.makedirs(WEATHER_DIR, exist_ok=True)
 
-# --- Helpers for API keys (persisted) ---
-def persist_text_input(key, label, type=None):
-    val = st.sidebar.text_input(label, type=type, key=key)
-    if val:
-        st.session_state[key] = val
-    return st.session_state.get(key, "")
+# ---- File Handling Utilities ----
+def save_files_to_disk(uploaded_files, folder):
+    for file in uploaded_files:
+        file_path = os.path.join(folder, file.name)
+        with open(file_path, "wb") as f:
+            f.write(file.getbuffer())
 
-# --- API key inputs ---
-st.sidebar.header("🔐 API Keys (Optional)")
-cohere_key = persist_text_input("cohere_key", "Cohere API Key", type="password")
-hug_key = persist_text_input("hug_key", "Hugging Face API Key", type="password")
-replicate_key = persist_text_input("replicate_key", "Replicate API Key", type="password")
-if cohere_key: co = cohere.Client(cohere_key)
-if hug_key: hf = InferenceClient(token=hug_key)
-if replicate_key: rep = replicate.Client(api_token=replicate_key)
+def load_files_from_disk(folder):
+    files = []
+    for fname in sorted(os.listdir(folder)):
+        fpath = os.path.join(folder, fname)
+        if os.path.isfile(fpath) and fname.lower().endswith(".csv"):
+            files.append(fpath)
+    return files
 
-# --- Main file management function ---
-def upload_and_manage_files(label, session_key):
+def delete_files_from_disk(folder):
+    for fname in os.listdir(folder):
+        fpath = os.path.join(folder, fname)
+        if os.path.isfile(fpath):
+            os.remove(fpath)
+
+def remove_single_file(folder, filename):
+    fpath = os.path.join(folder, filename)
+    if os.path.isfile(fpath):
+        os.remove(fpath)
+
+def display_file_list(files, folder, filetype):
+    for fname in files:
+        col1, col2 = st.columns([4,1])
+        with col1:
+            st.write(f"- {os.path.basename(fname)}")
+        with col2:
+            if st.button(f"Delete", key=f"del_{filetype}_{fname}"):
+                remove_single_file(folder, os.path.basename(fname))
+                st.experimental_rerun()
+
+def upload_section(label, folder, filetype):
     st.write(f"### {label}")
+    existing_files = load_files_from_disk(folder)
+    if existing_files:
+        st.success(f"{len(existing_files)} file(s) currently stored:")
+        display_file_list(existing_files, folder, filetype)
+        if st.button(f"Clear all {label}", key=f"clear_{filetype}"):
+            delete_files_from_disk(folder)
+            st.experimental_rerun()
 
-    files = st.session_state.get(session_key, [])
-
-    # Show current files
-    if files:
-        st.success(f"{len(files)} file(s) stored:")
-        for i, file in enumerate(files):
-            st.write(f"{i+1}. {file.name}")
-
-    # Temporary uploader for new files
-    uploaded = st.file_uploader(f"Add/Update {label}", type="csv", accept_multiple_files=True, key=f"temp_{session_key}")
-
-    # For overwrite logic
-    if uploaded:
-        files_dict = {f.name: (i, f) for i, f in enumerate(files)}
-        overwrite_needed = False
-        overwrite_names = []
-        for f in uploaded:
-            if f.name in files_dict:
-                overwrite_needed = True
-                overwrite_names.append(f.name)
-        if overwrite_needed:
-            st.warning(f"File(s) with the same name already exist: {', '.join(overwrite_names)}")
-            overwrite = st.checkbox(f"Overwrite existing file(s): {', '.join(overwrite_names)}", key=f"chk_{session_key}")
-            if overwrite and st.button(f"Confirm Add/Overwrite {label}", key=f"btn_overwrite_{session_key}"):
-                # Overwrite existing by filename
-                # Remove files with those names
-                files = [f for f in files if f.name not in overwrite_names]
-                files.extend(uploaded)
-                st.session_state[session_key] = files
-                st.success("Files added/overwritten. Please reload or continue.")
+    uploaded_files = st.file_uploader(f"Add/Replace {label}", type="csv", accept_multiple_files=True, key=f"uploader_{filetype}")
+    if uploaded_files:
+        existing_names = [os.path.basename(f) for f in existing_files]
+        to_overwrite = [f.name for f in uploaded_files if f.name in existing_names]
+        if to_overwrite:
+            st.warning(f"File(s) already exist and will be overwritten: {', '.join(to_overwrite)}")
+            if st.button(f"Confirm Overwrite {label}", key=f"overwrite_{filetype}"):
+                save_files_to_disk(uploaded_files, folder)
+                st.success("Files uploaded and overwritten as needed.")
                 st.experimental_rerun()
         else:
-            if st.button(f"Add {label}", key=f"btn_add_{session_key}"):
-                files.extend(uploaded)
-                st.session_state[session_key] = files
-                st.success("Files added. Please reload or continue.")
+            if st.button(f"Add {label}", key=f"add_{filetype}"):
+                save_files_to_disk(uploaded_files, folder)
+                st.success("Files uploaded.")
                 st.experimental_rerun()
 
-    # Clear all files
-    if files and st.button(f"Clear {label}", key=f"clear_{session_key}"):
-        st.session_state[session_key] = []
-        st.experimental_rerun()
+    # Return up-to-date file list
+    return load_files_from_disk(folder)
 
-    return st.session_state.get(session_key, [])
+# ---- Sidebar: API Keys ----
+st.sidebar.header("🔐 API Keys (Optional)")
+cohere_key = st.sidebar.text_input("Cohere API Key", type="password", key="cohere_key")
+hug_key = st.sidebar.text_input("Hugging Face API Key", type="password", key="hug_key")
+replicate_key = st.sidebar.text_input("Replicate API Key", type="password", key="replicate_key")
 
-# --- Sidebar: Data Upload ---
+# ---- Sidebar: File Upload and Management ----
 st.sidebar.header("📁 Upload Data")
 with st.sidebar.expander("Solar Data", expanded=True):
-    solar_files = upload_and_manage_files("Solar CSV(s)", "solar_files")
+    solar_files = upload_section("Solar CSV(s)", SOLAR_DIR, "solar")
 with st.sidebar.expander("Weather Data", expanded=True):
-    weather_files = upload_and_manage_files("Weather CSV(s)", "weather_files")
+    weather_files = upload_section("Weather CSV(s)", WEATHER_DIR, "weather")
 
 if not solar_files or not weather_files:
     st.warning("Upload both solar and weather data to begin analysis.")
     st.stop()
 
-# --- Data Loading and Caching ---
+# ---- Data Loading ----
 @st.cache_data(show_spinner=False)
 def load_and_prep_solar(files):
     solar_dfs = []
@@ -128,7 +137,7 @@ except Exception as e:
     st.error(f"Error loading files: {e}")
     st.stop()
 
-# --- Date Filter ---
+# ---- Date Filter ----
 st.sidebar.header("📅 Filter")
 solar_min = solar_pivot['last_changed'].min() if not solar_pivot.empty else pd.Timestamp.today()
 solar_max = solar_pivot['last_changed'].max() if not solar_pivot.empty else pd.Timestamp.today()
@@ -137,7 +146,7 @@ sdate, edate = pd.to_datetime(start), pd.to_datetime(end)
 solar_filtered = solar_pivot[(solar_pivot['last_changed'] >= sdate) & (solar_pivot['last_changed'] <= edate)]
 weather_filtered = weather_data[(weather_data['period_end'] >= sdate) & (weather_data['period_end'] <= edate)]
 
-# --- Chart Plot Function ---
+# ---- Chart Plot Function ----
 def plot_with_slider(df, x_col, y_col, chart_type, title):
     if chart_type == "Line":
         mode, fill = "lines", None
@@ -155,8 +164,8 @@ def plot_with_slider(df, x_col, y_col, chart_type, title):
         fig.add_trace(go.Bar(x=df[x_col], y=df[y_col], name=y_col))
     else:
         fig.add_trace(go.Scatter(
-            x=df[x_col], y=df[y_col], 
-            mode=mode, 
+            x=df[x_col], y=df[y_col],
+            mode=mode,
             fill=fill,
             name=y_col
         ))
@@ -180,7 +189,7 @@ def plot_with_slider(df, x_col, y_col, chart_type, title):
     )
     return fig
 
-# --- Sidebar Controls for Solar & Weather ---
+# ---- Sidebar Controls for Solar & Weather ----
 with st.sidebar.expander("🔆 Solar Chart Controls", expanded=True):
     solar_params = [col for col in solar_filtered.columns if col != 'last_changed']
     solar_num_charts = st.number_input("Number of Solar Charts", min_value=1, max_value=min(3, len(solar_params)), value=1, key="solar_num")
@@ -203,7 +212,7 @@ with st.sidebar.expander("🌦️ Weather Chart Controls", expanded=True):
         weather_selected_params.append(param)
         weather_chart_types.append(ctype)
 
-# --- Layout: Solar & Weather Charts Side by Side ---
+# ---- Layout: Solar & Weather Charts Side by Side ----
 st.markdown("## Compare Solar & Weather Data")
 cols = st.columns(2)
 with cols[0]:
@@ -218,11 +227,13 @@ with cols[1]:
         fig = plot_with_slider(weather_filtered, 'period_end', weather_selected_params[i], weather_chart_types[i], f"{weather_selected_params[i]} ({weather_chart_types[i]})")
         st.plotly_chart(fig, use_container_width=True, key=f"weather_chart_{i}")
 
-# --- AI Assistant (no OpenAI) ---
-st.subheader("🤖 AI Data Analysis")
+# ---- AI Assistant (Optional, no OpenAI) ----
+st.subheader("🤖 AI Data Analysis (Cohere/HuggingFace/Replicate)")
 question = st.text_input("Ask a question about your solar or weather data")
 if question:
     if cohere_key:
+        import cohere
+        co = cohere.Client(cohere_key)
         with st.spinner("Thinking..."):
             response = co.chat(message=question)
             st.success(response.text)
@@ -233,7 +244,7 @@ if question:
     else:
         st.info("Enter a model API key (Cohere, Hugging Face, or Replicate) for smart responses.")
 
-# --- Sharing Instructions ---
+# ---- Sharing Instructions ----
 st.markdown("---")
 st.markdown(
     """
