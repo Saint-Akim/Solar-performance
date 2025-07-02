@@ -7,41 +7,83 @@ import cohere, replicate
 st.set_page_config(page_title="Solar AI Dashboard", layout="wide")
 st.title("☀️ AI-Powered Solar Performance & Weather Analyzer")
 
-# --- SESSION STATE SETUP FOR FILES & API KEYS ---
-def persist_upload(key, label, type, accept_multiple):
-    """Helper to persist uploads in session_state."""
-    uploaded = st.sidebar.file_uploader(label, type=type, accept_multiple_files=accept_multiple, key=key)
-    if uploaded:
-        st.session_state[key] = uploaded
-    return st.session_state.get(key, [])
-
+# --- Helpers for API keys (persisted) ---
 def persist_text_input(key, label, type=None):
-    """Helper to persist API keys in session_state."""
     val = st.sidebar.text_input(label, type=type, key=key)
     if val:
         st.session_state[key] = val
     return st.session_state.get(key, "")
 
-# --- API KEY ENTRY ---
+# --- API key inputs ---
 st.sidebar.header("🔐 API Keys (Optional)")
 cohere_key = persist_text_input("cohere_key", "Cohere API Key", type="password")
 hug_key = persist_text_input("hug_key", "Hugging Face API Key", type="password")
 replicate_key = persist_text_input("replicate_key", "Replicate API Key", type="password")
-
 if cohere_key: co = cohere.Client(cohere_key)
 if hug_key: hf = InferenceClient(token=hug_key)
 if replicate_key: rep = replicate.Client(api_token=replicate_key)
 
-# --- DATA UPLOAD (PERSISTED) ---
+# --- Main file management function ---
+def upload_and_manage_files(label, session_key):
+    st.write(f"### {label}")
+
+    files = st.session_state.get(session_key, [])
+
+    # Show current files
+    if files:
+        st.success(f"{len(files)} file(s) stored:")
+        for i, file in enumerate(files):
+            st.write(f"{i+1}. {file.name}")
+
+    # Temporary uploader for new files
+    uploaded = st.file_uploader(f"Add/Update {label}", type="csv", accept_multiple_files=True, key=f"temp_{session_key}")
+
+    # For overwrite logic
+    if uploaded:
+        files_dict = {f.name: (i, f) for i, f in enumerate(files)}
+        overwrite_needed = False
+        overwrite_names = []
+        for f in uploaded:
+            if f.name in files_dict:
+                overwrite_needed = True
+                overwrite_names.append(f.name)
+        if overwrite_needed:
+            st.warning(f"File(s) with the same name already exist: {', '.join(overwrite_names)}")
+            overwrite = st.checkbox(f"Overwrite existing file(s): {', '.join(overwrite_names)}", key=f"chk_{session_key}")
+            if overwrite and st.button(f"Confirm Add/Overwrite {label}", key=f"btn_overwrite_{session_key}"):
+                # Overwrite existing by filename
+                # Remove files with those names
+                files = [f for f in files if f.name not in overwrite_names]
+                files.extend(uploaded)
+                st.session_state[session_key] = files
+                st.success("Files added/overwritten. Please reload or continue.")
+                st.experimental_rerun()
+        else:
+            if st.button(f"Add {label}", key=f"btn_add_{session_key}"):
+                files.extend(uploaded)
+                st.session_state[session_key] = files
+                st.success("Files added. Please reload or continue.")
+                st.experimental_rerun()
+
+    # Clear all files
+    if files and st.button(f"Clear {label}", key=f"clear_{session_key}"):
+        st.session_state[session_key] = []
+        st.experimental_rerun()
+
+    return st.session_state.get(session_key, [])
+
+# --- Sidebar: Data Upload ---
 st.sidebar.header("📁 Upload Data")
-solar_files = persist_upload("solar_files", "Upload Solar CSV(s)", type="csv", accept_multiple=True)
-weather_files = persist_upload("weather_files", "Upload Weather CSV(s)", type="csv", accept_multiple=True)
+with st.sidebar.expander("Solar Data", expanded=True):
+    solar_files = upload_and_manage_files("Solar CSV(s)", "solar_files")
+with st.sidebar.expander("Weather Data", expanded=True):
+    weather_files = upload_and_manage_files("Weather CSV(s)", "weather_files")
 
 if not solar_files or not weather_files:
-    st.warning("Upload solar and weather data to begin analysis.")
+    st.warning("Upload both solar and weather data to begin analysis.")
     st.stop()
 
-# --- DATA LOADING AND CACHING ---
+# --- Data Loading and Caching ---
 @st.cache_data(show_spinner=False)
 def load_and_prep_solar(files):
     solar_dfs = []
@@ -86,7 +128,7 @@ except Exception as e:
     st.error(f"Error loading files: {e}")
     st.stop()
 
-# --- FILTER SECTION ---
+# --- Date Filter ---
 st.sidebar.header("📅 Filter")
 solar_min = solar_pivot['last_changed'].min() if not solar_pivot.empty else pd.Timestamp.today()
 solar_max = solar_pivot['last_changed'].max() if not solar_pivot.empty else pd.Timestamp.today()
@@ -95,7 +137,7 @@ sdate, edate = pd.to_datetime(start), pd.to_datetime(end)
 solar_filtered = solar_pivot[(solar_pivot['last_changed'] >= sdate) & (solar_pivot['last_changed'] <= edate)]
 weather_filtered = weather_data[(weather_data['period_end'] >= sdate) & (weather_data['period_end'] <= edate)]
 
-# --- PLOTLY CHART FUNCTION ---
+# --- Chart Plot Function ---
 def plot_with_slider(df, x_col, y_col, chart_type, title):
     if chart_type == "Line":
         mode, fill = "lines", None
@@ -138,7 +180,7 @@ def plot_with_slider(df, x_col, y_col, chart_type, title):
     )
     return fig
 
-# --- SIDEBAR CONTROLS FOR SOLAR & WEATHER ---
+# --- Sidebar Controls for Solar & Weather ---
 with st.sidebar.expander("🔆 Solar Chart Controls", expanded=True):
     solar_params = [col for col in solar_filtered.columns if col != 'last_changed']
     solar_num_charts = st.number_input("Number of Solar Charts", min_value=1, max_value=min(3, len(solar_params)), value=1, key="solar_num")
@@ -161,7 +203,7 @@ with st.sidebar.expander("🌦️ Weather Chart Controls", expanded=True):
         weather_selected_params.append(param)
         weather_chart_types.append(ctype)
 
-# --- LAYOUT: SOLAR & WEATHER CHARTS SIDE BY SIDE ---
+# --- Layout: Solar & Weather Charts Side by Side ---
 st.markdown("## Compare Solar & Weather Data")
 cols = st.columns(2)
 with cols[0]:
@@ -176,7 +218,7 @@ with cols[1]:
         fig = plot_with_slider(weather_filtered, 'period_end', weather_selected_params[i], weather_chart_types[i], f"{weather_selected_params[i]} ({weather_chart_types[i]})")
         st.plotly_chart(fig, use_container_width=True, key=f"weather_chart_{i}")
 
-# --- AI ASSISTANT (NO OPENAI) ---
+# --- AI Assistant (no OpenAI) ---
 st.subheader("🤖 AI Data Analysis")
 question = st.text_input("Ask a question about your solar or weather data")
 if question:
@@ -191,7 +233,7 @@ if question:
     else:
         st.info("Enter a model API key (Cohere, Hugging Face, or Replicate) for smart responses.")
 
-# --- SHARING INSTRUCTIONS ---
+# --- Sharing Instructions ---
 st.markdown("---")
 st.markdown(
     """
@@ -201,4 +243,4 @@ st.markdown(
     - _If running locally, others on your network can access it via your computer's IP address and the port shown in your terminal (e.g., `http://192.168.X.X:8501`)._
     """
 )
-st.markdown("<center><small>Built by Hussein Akim —  Solar Insights</small></center>", unsafe_allow_html=True)
+st.markdown("<center><small>Built by Hussein Akim — AI-enhanced Solar Insights</small></center>", unsafe_allow_html=True)
