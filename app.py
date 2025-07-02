@@ -4,11 +4,11 @@ import pandas as pd
 import plotly.graph_objects as go
 
 # ---- Page Configuration ----
-st.set_page_config(page_title="Solar AI Dashboard", layout="wide")
-st.title("☀️ AI-Powered Solar Performance & Weather Analyzer")
+st.set_page_config(page_title="Solar Dashboard", layout="wide")
+st.title("☀️ Solar Performance & Weather Analyzer")
 
 # ---- Folder Setup ----
-UPLOAD_ROOT = "uploads"
+UPLOAD_ROOT = "Uploads"
 SOLAR_DIR = os.path.join(UPLOAD_ROOT, "solar")
 WEATHER_DIR = os.path.join(UPLOAD_ROOT, "weather")
 os.makedirs(SOLAR_DIR, exist_ok=True)
@@ -72,13 +72,6 @@ def upload_section(label, folder, filetype):
 
     return load_files_from_disk(folder)
 
-# ---- Sidebar: API Keys ----
-st.sidebar.header("🔐 API Keys (Optional)")
-openai_key = st.sidebar.text_input("OpenAI API Key", type="password", key="openai_key")
-cohere_key = st.sidebar.text_input("Cohere API Key", type="password", key="cohere_key")
-hug_key = st.sidebar.text_input("Hugging Face API Key", type="password", key="hug_key")
-replicate_key = st.sidebar.text_input("Replicate API Key", type="password", key="replicate_key")
-
 # ---- Sidebar: File Upload and Management ----
 st.sidebar.header("📁 Upload Data")
 with st.sidebar.expander("Solar Data", expanded=True):
@@ -125,7 +118,7 @@ def load_and_prep_weather(files):
     total_capacity_kw = 221.43
     performance_ratio = 0.8
     if 'gti' in weather_data.columns:
-        weather_data['expected_power_kw'] = weather_data['gti'] * total_capacity_kw * performance_ratio / 1000
+        weather_data['expected_power_kw'] = weather_data['gti'] * total_capacity kw * performance_ratio / 1000
     return weather_data
 
 try:
@@ -231,43 +224,14 @@ with cols[1]:
             fig = plot_with_slider(weather_filtered, 'period_end', weather_selected_params[i], weather_chart_types[i], f"{weather_selected_params[i]} ({weather_chart_types[i]})")
             st.plotly_chart(fig, use_container_width=True, key=f"weather_chart_{i}")
 
-# ---- AI Assistant ----
-st.subheader("🤖 AI Data Analysis")
-question = st.text_input("Ask a question about your solar or weather data")
-if question:
-    ai_model = st.selectbox("Choose AI Model", ["Cohere", "OpenAI"], key="ai_model")
-    if ai_model == "Cohere" and cohere_key:
-        try:
-            import cohere
-            co = cohere.Client(cohere_key)
-            with st.spinner("Thinking..."):
-                response = co.chat(message=question)
-                st.success(response.text)
-        except Exception as e:
-            st.error(f"Error with Cohere API: {e}")
-    elif ai_model == "OpenAI" and openai_key:
-        try:
-            import openai
-            openai.api_key = openai_key
-            with st.spinner("Thinking..."):
-                response = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
-                    messages=[{"role": "user", "content": f"Using the uploaded solar power and weather data, answer: {question}"}]
-                )
-                st.success(response.choices[0].message.content)
-        except Exception as e:
-            st.error(f"Error with OpenAI API: {e}")
-    else:
-        st.info(f"Enter a valid {ai_model} API key for smart responses.")
-
 # ---- Sharing Instructions ----
 st.markdown("---")
 st.markdown(
     """
     #### 👥 **Share this dashboard**
-    - Deploy your app using [Streamlit Community Cloud](https://streamlit.io/cloud) or another hosting service.
+    - Deploy your app using [Streamlit Community Cloud](https://docs.streamlit.io/streamlit-community-cloud) or another hosting service.
     - Once deployed, copy the app URL and share it with others—they'll be able to view and interact with your charts!
-    - _If running locally, others on your network can access it via your computer's IP address and the port shown in your terminal (e.g., `http://192.168.x.x:8501`)._
+    - _If running locally, others on your network can access it via your computer's IP address and the port shown in your terminal (e.g., `http://localhost:8501`)._
     """
 )
-st.markdown("<center><small>Built by Hussein Akim — AI-enhanced Solar Insights</small></center>", unsafe_allow_html=True)
+st.markdown("<center><small>Built by Hussein Akim — Solar Insights</small></center>", unsafe_allow_html=True)
