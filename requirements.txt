@@ -2,4 +2,10 @@ streamlit
 pandas
 plotly
 scikit-learn
+openai
+cohere
+transformers
+replicate
+matplotlib
+scipy
 numpy
