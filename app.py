@@ -44,7 +44,7 @@ def display_file_list(files, folder, filetype):
         with col2:
             if st.button(f"Delete", key=f"del_{filetype}_{fname}"):
                 remove_single_file(folder, os.path.basename(fname))
-                st.experimental_rerun()
+                st.rerun()
 
 def upload_section(label, folder, filetype):
     st.write(f"### {label}")
@@ -54,7 +54,7 @@ def upload_section(label, folder, filetype):
         display_file_list(existing_files, folder, filetype)
         if st.button(f"Clear all {label}", key=f"clear_{filetype}"):
             delete_files_from_disk(folder)
-            st.experimental_rerun()
+            st.rerun()
 
     uploaded_files = st.file_uploader(f"Add/Replace {label}", type="csv", accept_multiple_files=True, key=f"uploader_{filetype}")
     if uploaded_files:
@@ -65,12 +65,12 @@ def upload_section(label, folder, filetype):
             if st.button(f"Confirm Overwrite {label}", key=f"overwrite_{filetype}"):
                 save_files_to_disk(uploaded_files, folder)
                 st.success("Files uploaded and overwritten as needed.")
-                st.experimental_rerun()
+                st.rerun()
         else:
             if st.button(f"Add {label}", key=f"add_{filetype}"):
                 save_files_to_disk(uploaded_files, folder)
                 st.success("Files uploaded.")
-                st.experimental_rerun()
+                st.rerun()
 
     # Return up-to-date file list
     return load_files_from_disk(folder)
@@ -217,26 +217,35 @@ st.markdown("## Compare Solar & Weather Data")
 cols = st.columns(2)
 with cols[0]:
     st.subheader("🔆 Solar Charts")
-    for i in range(solar_num_charts):
-        fig = plot_with_slider(solar_filtered, 'last_changed', solar_selected_params[i], solar_chart_types[i], f"{solar_selected_params[i]} ({solar_chart_types[i]})")
-        st.plotly_chart(fig, use_container_width=True, key=f"solar_chart_{i}")
+    if solar_filtered.empty:
+        st.warning("No solar data available for the selected date range.")
+    else:
+        for i in range(solar_num_charts):
+            fig = plot_with_slider(solar_filtered, 'last_changed', solar_selected_params[i], solar_chart_types[i], f"{solar_selected_params[i]} ({solar_chart_types[i]})")
+            st.plotly_chart(fig, use_container_width=True, key=f"solar_chart_{i}")
 
 with cols[1]:
     st.subheader("🌦️ Weather Charts")
-    for i in range(weather_num_charts):
-        fig = plot_with_slider(weather_filtered, 'period_end', weather_selected_params[i], weather_chart_types[i], f"{weather_selected_params[i]} ({weather_chart_types[i]})")
-        st.plotly_chart(fig, use_container_width=True, key=f"weather_chart_{i}")
+    if weather_filtered.empty:
+        st.warning("No weather data available for the selected date range.")
+    else:
+        for i in range(weather_num_charts):
+            fig = plot_with_slider(weather_filtered, 'period_end', weather_selected_params[i], weather_chart_types[i], f"{weather_selected_params[i]} ({weather_chart_types[i]})")
+            st.plotly_chart(fig, use_container_width=True, key=f"weather_chart_{i}")
 
 # ---- AI Assistant (Optional, no OpenAI) ----
 st.subheader("🤖 AI Data Analysis (Cohere/HuggingFace/Replicate)")
 question = st.text_input("Ask a question about your solar or weather data")
 if question:
     if cohere_key:
-        import cohere
-        co = cohere.Client(cohere_key)
-        with st.spinner("Thinking..."):
-            response = co.chat(message=question)
-            st.success(response.text)
+        try:
+            import cohere
+            co = cohere.Client(cohere_key)
+            with st.spinner("Thinking..."):
+                response = co.chat(message=question)
+                st.success(response.text)
+        except Exception as e:
+            st.error(f"Error with Cohere API: {e}")
     elif hug_key:
         st.info("HuggingFace model integration goes here.")
     elif replicate_key:
