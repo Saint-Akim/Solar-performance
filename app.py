@@ -58,19 +58,13 @@ def upload_section(label, folder, filetype):
 
     uploaded_files = st.file_uploader(f"Add/Replace {label}", type="csv", accept_multiple_files=True, key=f"uploader_{filetype}")
     if uploaded_files:
-        existing_names = [os.path.basename(f) for f in existing_files]
+        existing_names = [os.path.basename(f) for f in load_files_from_disk(folder)]
         to_overwrite = [f.name for f in uploaded_files if f.name in existing_names]
         if to_overwrite:
             st.warning(f"File(s) already exist and will be overwritten: {', '.join(to_overwrite)}")
-            if st.button(f"Confirm Overwrite {label}", key=f"overwrite_{filetype}"):
-                save_files_to_disk(uploaded_files, folder)
-                st.success("Files uploaded and overwritten as needed.")
-                st.rerun()
-        else:
-            if st.button(f"Add {label}", key=f"add_{filetype}"):
-                save_files_to_disk(uploaded_files, folder)
-                st.success("Files uploaded.")
-                st.rerun()
+        save_files_to_disk(uploaded_files, folder)
+        st.success("Files uploaded.")
+        st.rerun()
 
     # Return up-to-date file list
     return load_files_from_disk(folder)
@@ -99,7 +93,7 @@ def load_and_prep_solar(files):
     for f in files:
         df = pd.read_csv(f)
         if 'last_changed' not in df.columns:
-            raise ValueError("Missing 'last_changed' in solar data")
+            raise ValueError(f"Missing 'last_changed' in solar data file: {f}")
         df['last_changed'] = pd.to_datetime(df['last_changed'], utc=True, errors='coerce')
         df = df.dropna(subset=['last_changed'])
         df['last_changed'] = df['last_changed'].dt.tz_convert('Africa/Johannesburg').dt.tz_localize(None)
@@ -258,7 +252,7 @@ st.markdown("---")
 st.markdown(
     """
     #### 👥 **Share this dashboard**
-    - Deploy your app using [Streamlit Community Cloud](https://share.streamlit.io/) or another hosting service.
+    - Deploy your app using [Streamlit Community Cloud](https://streamlit.io/cloud) or another hosting service.
     - Once deployed, copy the app URL and share it with others—they'll be able to view and interact with your charts!
     - _If running locally, others on your network can access it via your computer's IP address and the port shown in your terminal (e.g., `http://192.168.X.X:8501`)._
     """
