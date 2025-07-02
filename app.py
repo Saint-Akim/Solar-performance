@@ -14,13 +14,11 @@ MAX_FILE_SIZE_MB = 10
 
 # ---- Utility Functions ----
 def ensure_dirs():
-    """Create upload directories if they do not exist."""
     os.makedirs(SOLAR_DIR, exist_ok=True)
     os.makedirs(WEATHER_DIR, exist_ok=True)
 ensure_dirs()
 
 def file_disk_action(folder, action, filename=None):
-    """Unified file management: load, delete all, or delete one."""
     if action == "load":
         return [os.path.join(folder, fname) for fname in sorted(os.listdir(folder))
                 if os.path.isfile(os.path.join(folder, fname)) and fname.lower().endswith(".csv")]
@@ -35,14 +33,12 @@ def file_disk_action(folder, action, filename=None):
             os.remove(fpath)
 
 def save_files_to_disk(uploaded_files, folder):
-    """Save uploaded files to disk."""
     for file in uploaded_files:
         file_path = os.path.join(folder, file.name)
         with open(file_path, "wb") as f:
             f.write(file.getbuffer())
 
 def check_file_size(uploaded_files):
-    """Validate individual file size does not exceed limit."""
     for file in uploaded_files:
         if file.size > MAX_FILE_SIZE_MB * 1024 * 1024:
             st.error(f"File {file.name} exceeds {MAX_FILE_SIZE_MB}MB limit.")
@@ -50,13 +46,11 @@ def check_file_size(uploaded_files):
     return True
 
 def validate_file_columns(df, required_columns, filetype, filename):
-    """Ensure all required columns exist in the dataframe."""
     missing = [col for col in required_columns if col not in df.columns]
     if missing:
         raise ValueError(f"Missing column(s) {missing} in {filetype} file: {filename}")
 
 def display_file_list(files, folder, filetype):
-    """Display file list with delete buttons."""
     for fname in files:
         col1, col2 = st.columns([4, 1])
         with col1:
@@ -64,10 +58,10 @@ def display_file_list(files, folder, filetype):
         with col2:
             if st.button("Delete", key=f"del_{filetype}_{fname}"):
                 file_disk_action(folder, "delete_one", os.path.basename(fname))
+                st.cache_data.clear()
                 st.rerun()
 
 def upload_section(label, folder, filetype):
-    """Handles the file upload, listing, and deletion UI for a given type."""
     st.write(f"### {label}")
     existing_files = file_disk_action(folder, "load")
     if existing_files:
@@ -75,6 +69,7 @@ def upload_section(label, folder, filetype):
         display_file_list(existing_files, folder, filetype)
         if st.button(f"Clear all {label}", key=f"clear_{filetype}"):
             file_disk_action(folder, "delete_all")
+            st.cache_data.clear()
             st.rerun()
     uploaded_files = st.file_uploader(
         f"Add/Replace {label}",
@@ -88,7 +83,8 @@ def upload_section(label, folder, filetype):
         if to_overwrite:
             st.warning(f"File(s) will be overwritten: {', '.join(to_overwrite)}")
         save_files_to_disk(uploaded_files, folder)
-        st.success("Files uploaded.")
+        st.success("Files uploaded and overwritten if duplicates existed. Re-analyzing data now.")
+        st.cache_data.clear()
         st.rerun()
     return file_disk_action(folder, "load")
 
@@ -108,7 +104,6 @@ if not solar_files or not weather_files:
 # ---- Data Loading ----
 @st.cache_data(show_spinner=False)
 def load_and_prep_solar(files):
-    """Load and preprocess solar files into a pivot table dataframe."""
     solar_dfs = []
     for f in files:
         df = pd.read_csv(f)
@@ -125,7 +120,6 @@ def load_and_prep_solar(files):
 
 @st.cache_data(show_spinner=False)
 def load_and_prep_weather(files):
-    """Load and preprocess weather files into a dataframe."""
     weather_dfs = []
     for f in files:
         df = pd.read_csv(f)
@@ -138,7 +132,6 @@ def load_and_prep_weather(files):
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         weather_dfs.append(df)
     weather_data = pd.concat(weather_dfs, ignore_index=True)
-    # Add expected_power_kw if GTI present
     if 'gti' in weather_data.columns:
         weather_data['expected_power_kw'] = weather_data['gti'] * TOTAL_CAPACITY_KW * PERFORMANCE_RATIO / 1000
     return weather_data
@@ -201,9 +194,7 @@ with st.sidebar.expander("🌦️ Weather Chart Controls", expanded=True):
         weather_chart_types.append(ctype)
         weather_colors.append(color)
 
-# ---- Chart Plot Function ----
 def plot_with_slider(df, x_col, y_col, chart_type, title, color):
-    """Plot interactive charts with a slider and custom options."""
     if chart_type == "Line":
         mode, fill = "lines", None
     elif chart_type == "Bar":
@@ -247,7 +238,6 @@ def plot_with_slider(df, x_col, y_col, chart_type, title, color):
     )
     return fig
 
-# ---- Layout: Solar & Weather Charts Side by Side ----
 st.markdown("## Compare Solar & Weather Data")
 cols = st.columns(2)
 with cols[0]:
@@ -276,7 +266,6 @@ with cols[1]:
             )
             st.plotly_chart(fig, use_container_width=True, key=f"weather_chart_{i}")
 
-# ---- Sharing Instructions ----
 st.markdown("---")
 with st.expander("How to Share or Deploy This Dashboard"):
     st.markdown("""
