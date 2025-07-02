@@ -63,7 +63,13 @@ if 'gti' in weather_data.columns:
 
 # --- FILTER ---
 st.sidebar.header("📅 Filter")
-start, end = st.sidebar.date_input("Select Date Range", [solar_pivot['last_changed'].min(), solar_pivot['last_changed'].max()])
+start, end = st.sidebar.date_input(
+    "Select Date Range",
+    [
+        solar_pivot['last_changed'].min() if not solar_pivot.empty else pd.Timestamp.today(),
+        solar_pivot['last_changed'].max() if not solar_pivot.empty else pd.Timestamp.today()
+    ]
+)
 sdate, edate = pd.to_datetime(start), pd.to_datetime(end)
 solar_filtered = solar_pivot[(solar_pivot['last_changed'] >= sdate) & (solar_pivot['last_changed'] <= edate)]
 weather_filtered = weather_data[(weather_data['period_end'] >= sdate) & (weather_data['period_end'] <= edate)]
@@ -124,6 +130,10 @@ else:
     available_params = [col for col in weather_filtered.columns if col not in ['period_end', 'period']]
     x_axis = 'period_end'
     data = weather_filtered
+
+if not available_params:
+    st.warning("No parameters found for plotting. Please check your data.")
+    st.stop()
 
 num_charts = st.sidebar.number_input("How many charts?", min_value=1, max_value=min(5, len(available_params)), value=1)
 
