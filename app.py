@@ -68,17 +68,24 @@ def clear_folder(folder):
 # ---- Upload Widget ----
 def upload_widget(label, folder):
     st.subheader(label)
+    session_key = f"{label}_uploaded"
+    if session_key not in st.session_state:
+        st.session_state[session_key] = False
+
     uploaded = st.file_uploader(f"Upload {label} (CSV, XLSX, or ZIP)",
                                 accept_multiple_files=True,
                                 type=["csv", "xlsx", "zip"],
                                 key=label)
-    if uploaded:
+
+    if uploaded and not st.session_state[session_key]:
         save_uploaded_files(uploaded, folder)
+        st.session_state[session_key] = True
         st.success(f"{len(uploaded)} file(s) saved!")
         st.rerun()
 
     if st.button(f"Clear {label}"):
         clear_folder(folder)
+        st.session_state[session_key] = False
         st.success(f"All {label} files deleted.")
         st.rerun()
 
