@@ -75,12 +75,12 @@ def upload_widget(label, folder):
     if uploaded:
         save_uploaded_files(uploaded, folder)
         st.success(f"{len(uploaded)} file(s) saved!")
-        st.experimental_rerun()
+        st.rerun()
 
     if st.button(f"Clear {label}"):
         clear_folder(folder)
         st.success(f"All {label} files deleted.")
-        st.experimental_rerun()
+        st.rerun()
 
     files = load_files_from(folder)
     if files:
@@ -95,7 +95,7 @@ def fetch_solcast_csv():
             with open(os.path.join(WEATHER_DIR, "solcast_latest.csv"), 'wb') as f:
                 f.write(response.content)
             st.success("✅ Solcast data downloaded successfully!")
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error(f"Failed to fetch Solcast data. Status code: {response.status_code}")
     except Exception as e:
