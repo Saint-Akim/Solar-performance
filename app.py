@@ -1,4 +1,4 @@
-# solar_dashboard.py — Final Unified Version by Hussein Akim
+# app.py — Unified Solar Dashboard by Hussein Akim
 
 import os
 import streamlit as st
@@ -11,7 +11,7 @@ import zipfile
 from datetime import datetime, timedelta
 import pytz
 
-# ---- Configuration Constants ----
+# ---- Configuration ----
 UPLOAD_ROOT = "Uploads"
 SOLAR_DIR = os.path.join(UPLOAD_ROOT, "solar")
 WEATHER_DIR = os.path.join(UPLOAD_ROOT, "weather")
@@ -27,7 +27,7 @@ os.makedirs(SOLAR_DIR, exist_ok=True)
 os.makedirs(WEATHER_DIR, exist_ok=True)
 os.makedirs(ARCHIVE_DIR, exist_ok=True)
 
-# ---- Archive Old Files Automatically ----
+# ---- Archive Files Automatically ----
 def archive_old_files(folder):
     now = datetime.now()
     for fname in os.listdir(folder):
@@ -42,13 +42,13 @@ def archive_old_files(folder):
 archive_old_files(SOLAR_DIR)
 archive_old_files(WEATHER_DIR)
 
-# ---- Session State Init ----
+# ---- Session State ----
 if "admin_mode" not in st.session_state:
     st.session_state.admin_mode = False
 if "memory_data" not in st.session_state:
     st.session_state.memory_data = pd.DataFrame(columns=["time", "ram_percent"])
 
-# ---- Page Config ----
+# ---- Page Setup ----
 st.set_page_config(page_title="Solar Dashboard", layout="wide")
 st.title("\u2600\ufe0f Solar Performance & Weather Analyzer")
 
@@ -62,14 +62,18 @@ st.sidebar.markdown(f"**RAM Usage:** {ram.percent}% ({ram.used // (1024**2)}MB /
 st.sidebar.markdown(f"**Disk Usage:** {disk.percent}%")
 st.sidebar.markdown(f"**OS:** {platform.system()} {platform.release()}")
 
-# ---- RAM Usage Chart ----
-st.session_state.memory_data = pd.concat([
-    st.session_state.memory_data,
-    pd.DataFrame({"time": [datetime.now()], "ram_percent": [ram.percent]})
-]).tail(60)
+# ---- RAM Chart (Memory-safe) ----
+new_entry = pd.DataFrame({"time": [datetime.now()], "ram_percent": [ram.percent]})
+if st.session_state.memory_data.empty:
+    st.session_state.memory_data = new_entry
+else:
+    st.session_state.memory_data = pd.concat([
+        st.session_state.memory_data,
+        new_entry
+    ]).tail(60)
 st.sidebar.line_chart(st.session_state.memory_data.set_index("time"))
 
-# ---- Admin Toggle ----
+# ---- Admin Mode ----
 with st.sidebar.expander("Admin Mode"):
     pwd = st.text_input("Enter password to toggle Admin Mode", type="password")
     if st.button("Toggle Admin Mode"):
@@ -79,7 +83,7 @@ with st.sidebar.expander("Admin Mode"):
         else:
             st.error("Incorrect password")
 
-# ---- File Management ----
+# ---- File Handling ----
 def file_disk_action(folder, action, filename=None):
     if action == "load":
         return [os.path.join(folder, f) for f in sorted(os.listdir(folder)) if f.endswith(".csv")]
@@ -127,7 +131,7 @@ with st.sidebar.expander("Solar Data", expanded=True):
 with st.sidebar.expander("Weather Data", expanded=True):
     upload_section("Weather CSV(s)", WEATHER_DIR, "weather")
 
-# ---- Analysis and Visuals ----
+# ---- Analysis ----
 st.markdown("---")
 st.markdown("## Solar & Weather Performance Analysis")
 
