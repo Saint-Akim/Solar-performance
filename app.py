@@ -52,7 +52,7 @@ st.set_page_config(page_title="Solar Dashboard", layout="wide")
 st.title("\u2600\ufe0f Solar Performance & Weather Analyzer")
 
 # ---- Sidebar: System Monitor ----
-st.sidebar.header("\ud83d\udca5 System Monitor")
+st.sidebar.header("💥 System Monitor")
 cpu = psutil.cpu_percent(interval=1)
 ram = psutil.virtual_memory()
 disk = psutil.disk_usage('/')
