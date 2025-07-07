@@ -69,7 +69,7 @@ st.session_state.memory_data = pd.concat([
 st.sidebar.line_chart(st.session_state.memory_data.set_index("time"))
 
 # ---- Admin Toggle ----
-with st.sidebar.expander("\ud83d\udd10 Admin Mode"):
+with st.sidebar.expander("Admin Mode"):
     pwd = st.text_input("Enter password to toggle Admin Mode", type="password")
     if st.button("Toggle Admin Mode"):
         if pwd == ADMIN_PASSWORD:
@@ -120,7 +120,7 @@ def upload_section(label, folder, filetype):
             st.success("Files uploaded.")
             st.rerun()
 
-st.sidebar.header("\ud83d\udcc1 File Management")
+st.sidebar.header("File Management")
 with st.sidebar.expander("Solar Data", expanded=True):
     upload_section("Solar CSV(s)", SOLAR_DIR, "solar")
 with st.sidebar.expander("Weather Data", expanded=True):
@@ -128,7 +128,7 @@ with st.sidebar.expander("Weather Data", expanded=True):
 
 # ---- Placeholder for analysis section ----
 st.markdown("---")
-st.markdown("## \ud83d\udd2c Analysis and Visuals Will Be Loaded Here Once Data Is Uploaded")
+st.markdown("##Analysis and Visuals Will Be Loaded Here Once Data Is Uploaded")
 
 # You can append your previous solar+weather charting logic below this line
 # using `solar_files = file_disk_action(SOLAR_DIR, "load")` etc.
