@@ -9,6 +9,7 @@ import psutil
 import shutil
 import zipfile
 from datetime import datetime, timedelta
+import pytz
 
 # ---- Configuration Constants ----
 UPLOAD_ROOT = "Uploads"
@@ -52,7 +53,7 @@ st.set_page_config(page_title="Solar Dashboard", layout="wide")
 st.title("\u2600\ufe0f Solar Performance & Weather Analyzer")
 
 # ---- Sidebar: System Monitor ----
-st.sidebar.header("💥 System Monitor")
+st.sidebar.header("\U0001F4A5 System Monitor")
 cpu = psutil.cpu_percent(interval=1)
 ram = psutil.virtual_memory()
 disk = psutil.disk_usage('/')
@@ -107,7 +108,7 @@ def upload_section(label, folder, filetype):
                     st.download_button("\u2b07\ufe0f", data=d, file_name=os.path.basename(f), key=f"dl_{f}")
             if st.session_state.admin_mode:
                 with col3:
-                    if st.button("\ud83d\uddd1\ufe0f", key=f"del_{filetype}_{f}"):
+                    if st.button("\U0001F5D1\ufe0f", key=f"del_{filetype}_{f}"):
                         file_disk_action(folder, "delete_one", os.path.basename(f))
                         st.rerun()
         if st.session_state.admin_mode and st.button(f"Clear All {label}", key=f"clear_{filetype}"):
@@ -126,12 +127,59 @@ with st.sidebar.expander("Solar Data", expanded=True):
 with st.sidebar.expander("Weather Data", expanded=True):
     upload_section("Weather CSV(s)", WEATHER_DIR, "weather")
 
-# ---- Placeholder for analysis section ----
+# ---- Analysis and Visuals ----
 st.markdown("---")
-st.markdown("##Analysis and Visuals Will Be Loaded Here Once Data Is Uploaded")
+st.markdown("## Solar & Weather Performance Analysis")
 
-# You can append your previous solar+weather charting logic below this line
-# using `solar_files = file_disk_action(SOLAR_DIR, "load")` etc.
-# That logic is already integrated — just trimmed here for clarity.
+def parse_datetime(df, col):
+    try:
+        return pd.to_datetime(df[col]).dt.tz_localize(None).dt.tz_localize("UTC").dt.tz_convert(TZ)
+    except Exception:
+        return pd.to_datetime(df[col])
+
+solar_files = file_disk_action(SOLAR_DIR, "load")
+weather_files = file_disk_action(WEATHER_DIR, "load")
+
+if solar_files and weather_files:
+    df_solar = pd.concat([pd.read_csv(f) for f in solar_files])
+    df_weather = pd.concat([pd.read_csv(f) for f in weather_files])
+
+    for col in ["time", "timestamp", "datetime"]:
+        if col in df_solar.columns:
+            df_solar["time"] = parse_datetime(df_solar, col)
+            break
+    for col in ["time", "timestamp", "datetime"]:
+        if col in df_weather.columns:
+            df_weather["time"] = parse_datetime(df_weather, col)
+            break
+
+    df_solar = df_solar.sort_values("time")
+    df_weather = df_weather.sort_values("time")
+
+    df = pd.merge_asof(df_solar, df_weather, on="time")
+    df = df.dropna(subset=["energy_kwh", "ghi", "cloud_opacity"], how="any")
+
+    df["expected_kwh"] = (df["ghi"] * TOTAL_CAPACITY_KW * PERFORMANCE_RATIO) / 1000
+    df["efficiency"] = df["energy_kwh"] / df["expected_kwh"]
+
+    st.subheader("Energy Output vs Expected")
+    fig1 = go.Figure()
+    fig1.add_trace(go.Scatter(x=df["time"], y=df["energy_kwh"], name="Actual Energy (kWh)", line=dict(color="green")))
+    fig1.add_trace(go.Scatter(x=df["time"], y=df["expected_kwh"], name="Expected Energy (kWh)", line=dict(color="orange")))
+    st.plotly_chart(fig1, use_container_width=True)
+
+    st.subheader("Efficiency Over Time")
+    fig2 = go.Figure()
+    fig2.add_trace(go.Scatter(x=df["time"], y=df["efficiency"], name="Efficiency", line=dict(color="blue")))
+    st.plotly_chart(fig2, use_container_width=True)
+
+    st.subheader("Cloud Opacity vs Energy")
+    fig3 = go.Figure()
+    fig3.add_trace(go.Scatter(x=df["time"], y=df["cloud_opacity"], name="Cloud Opacity", yaxis="y2", line=dict(color="gray")))
+    fig3.add_trace(go.Scatter(x=df["time"], y=df["energy_kwh"], name="Energy (kWh)", line=dict(color="purple")))
+    fig3.update_layout(yaxis2=dict(overlaying="y", side="right", title="Cloud Opacity"), yaxis=dict(title="Energy (kWh)"))
+    st.plotly_chart(fig3, use_container_width=True)
+else:
+    st.warning("Please upload both solar and weather data files to begin analysis.")
 
 st.markdown("<center><small>Built by Hussein Akim — Solar Insights</small></center>", unsafe_allow_html=True)
