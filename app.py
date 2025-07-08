@@ -1,11 +1,9 @@
-# Merged Streamlit App: Unified + Upgraded Solar Dashboard by Hussein Akim
+# Merged Streamlit App: Unified + Upgraded Solar Dashboard by Hussein Akim (Debugged)
 
 import os
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import platform
-import psutil
 import zipfile
 from datetime import datetime, timedelta
 
@@ -89,10 +87,12 @@ def upload_section(label, folder):
             st.experimental_rerun()
 
     uploaded_files = st.file_uploader(f"Add {label}", type="csv", accept_multiple_files=True, key=f"uploader_{label}")
-    if uploaded_files and st.button(f"Upload {label}"):
-        save_files_to_disk(uploaded_files, folder)
-        st.success("Files uploaded.")
-        st.experimental_rerun()
+    if uploaded_files:
+        st.write("Uploaded files:", [f.name for f in uploaded_files])
+        if st.button(f"Upload {label}"):
+            save_files_to_disk(uploaded_files, folder)
+            st.success("Files uploaded.")
+            st.experimental_rerun()
     return load_files_from_disk(folder)
 
 # ---- App Layout ----
@@ -105,6 +105,9 @@ with st.sidebar.expander("Solar Data", expanded=True):
 with st.sidebar.expander("Weather Data", expanded=True):
     weather_files = upload_section("Weather", WEATHER_DIR)
 
+st.write("Solar Files:", solar_files)
+st.write("Weather Files:", weather_files)
+
 if not solar_files or not weather_files:
     st.warning("Upload both solar and weather data to begin analysis.")
     st.stop()
@@ -114,19 +117,26 @@ def load_solar(files):
     dfs = []
     for f in files:
         df = pd.read_csv(f)
+        required_cols = {'last_changed', 'state', 'entity_id'}
+        if not required_cols.issubset(df.columns):
+            st.error(f"Missing required columns in {f}: {required_cols - set(df.columns)}")
+            continue
         df['last_changed'] = pd.to_datetime(df['last_changed'], utc=True, errors='coerce')
         df = df.dropna(subset=['last_changed'])
         df['last_changed'] = df['last_changed'].dt.tz_convert(TZ).dt.tz_localize(None)
         df['state'] = pd.to_numeric(df['state'], errors='coerce')
         df['entity_id'] = df['entity_id'].str.lower().str.strip()
         dfs.append(df)
-    return pd.concat(dfs, ignore_index=True)
+    return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
 @st.cache_data(show_spinner=False)
 def load_weather(files):
     dfs = []
     for f in files:
         df = pd.read_csv(f)
+        if 'period_end' not in df.columns:
+            st.error(f"Missing 'period_end' in weather file {f}")
+            continue
         df['period_end'] = pd.to_datetime(df['period_end'], utc=True, errors='coerce')
         df = df.dropna(subset=['period_end'])
         df['period_end'] = df['period_end'].dt.tz_convert(TZ).dt.tz_localize(None)
@@ -134,14 +144,21 @@ def load_weather(files):
             if col not in ['period_end', 'period']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         dfs.append(df)
-    weather = pd.concat(dfs, ignore_index=True)
+    weather = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
     if 'gti' in weather.columns:
         weather['expected_power_kw'] = weather['gti'] * TOTAL_CAPACITY_KW * PERFORMANCE_RATIO / 1000
     return weather
 
-solar_df = load_solar(solar_files)
-weather_df = load_weather(weather_files)
-merged_df = pd.merge_asof(solar_df.sort_values("last_changed"), weather_df.sort_values("period_end"), left_on="last_changed", right_on="period_end")
+try:
+    solar_df = load_solar(solar_files)
+    weather_df = load_weather(weather_files)
+    if solar_df.empty or weather_df.empty:
+        st.warning("One of the datasets is empty after loading. Check your CSVs.")
+        st.stop()
+    merged_df = pd.merge_asof(solar_df.sort_values("last_changed"), weather_df.sort_values("period_end"), left_on="last_changed", right_on="period_end")
+except Exception as e:
+    st.error(f"Error during file loading: {e}")
+    st.stop()
 
 # ---- Date Filter ----
 st.sidebar.header("📅 Date Filter")
@@ -149,6 +166,10 @@ min_date = merged_df['last_changed'].min()
 max_date = merged_df['last_changed'].max()
 start, end = st.sidebar.date_input("Select Date Range", [min_date, max_date])
 filtered = merged_df[(merged_df['last_changed'] >= pd.to_datetime(start)) & (merged_df['last_changed'] <= pd.to_datetime(end))]
+
+if filtered.empty:
+    st.warning("No data available in the selected date range.")
+    st.stop()
 
 # ---- Plot Charts ----
 st.subheader("🌞 Actual vs Expected Power")
