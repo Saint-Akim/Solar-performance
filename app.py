@@ -86,7 +86,7 @@ def delete_files_from_disk(folder):
 
 # ---- App UI ----
 st.set_page_config(page_title="Solar Dashboard", layout="wide")
-st.title("☀️ Unified Solar Dashboard")
+st.title("☀️ Goowe and Fronius Performance vs Weather data of Southern Paarl")
 
 st.sidebar.header("📁 Upload Data")
 
