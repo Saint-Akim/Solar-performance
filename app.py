@@ -37,14 +37,17 @@ SOLAR_LABELS = {
     # Add more as needed
 }
 
+# ---- Weather Parameter Explainers (expanded & improved) ----
 WEATHER_PARAM_EXPLAINERS = {
-    "air_temp": "🌡️ **Air Temperature:** Affects panel efficiency; too high reduces output.",
-    "gti": "📊 **Global Tilted Irradiance (GTI):** Real solar input on actual panel tilt.",
-    "cloud_opacity": "☁️ **Cloud Opacity:** Higher = more light blocked by clouds.",
-    "ghi": "📉 **Global Horizontal Irradiance:** Total light on flat surface.",
-    "weather_type": "🌦️ **Weather Type:** Descriptive: SUNNY, CLEAR, etc.",
-    "expected_power_kw": "🔋 **Expected Power:** Based on irradiance, capacity, PR.",
-    "period_end": "🕒 **Period End:** Timestamp of record."
+    "air_temp": "🌡️ **Air Temperature:** High temperatures can reduce the efficiency of solar panels—typically by about 0.4% per °C above 25°C—resulting in lower energy output on hot days.",
+    "gti": "📈 **Global Tilted Irradiance (GTI):** The amount of solar energy received on a tilted surface, directly impacting solar production.",
+    "ghi": "📉 **Global Horizontal Irradiance (GHI):** Measures sunlight on a flat surface; an indicator of available solar resource.",
+    "cloud_opacity": "☁️ **Cloud Opacity:** Higher values mean more sunlight is being blocked by clouds.",
+    "humidity": "💧 **Humidity:** High humidity can reduce sunlight through increased cloudiness, lowering panel output.",
+    "wind_speed": "💨 **Wind Speed:** Wind can cool panels, making them more efficient, but excessive wind may signal storms or dust.",
+    "weather_type": "🌦️ **Weather Type:** General sky condition (e.g., SUNNY, CLEAR, etc.), descriptive only.",
+    "expected_power_kw": "🔋 **Expected Power:** Calculated based on irradiance, system size, and performance ratio; shows what your system should ideally produce.",
+    "period_end": "🕒 **Period End:** The time this weather data was recorded."
 }
 
 WEATHER_TYPE_DISPLAY = {
@@ -121,6 +124,34 @@ if solar_files and weather_files:
     fig.add_trace(go.Scatter(x=df["last_changed"], y=df["state"], name="Actual", line=dict(color="green")))
     fig.add_trace(go.Scatter(x=df["last_changed"], y=df["expected_power_kw"], name="Expected", line=dict(color="orange")))
     st.plotly_chart(fig, use_container_width=True)
+
+    # --- Sum of Fronius and GoodWe Grid Power Chart ---
+    if "sensor.fronius_grid_power" in df.columns and "sensor.goodwe_grid_power" in df.columns:
+        df["sum_grid_power"] = df["sensor.fronius_grid_power"].fillna(0) + df["sensor.goodwe_grid_power"].fillna(0)
+        fig_sum = go.Figure()
+        fig_sum.add_trace(go.Scatter(
+            x=df["last_changed"], y=df["sum_grid_power"],
+            name="Sum Grid Power", line=dict(color="#A020F0")))
+        st.markdown("#### Sum of Fronius and GoodWe Grid Power")
+        st.plotly_chart(fig_sum, use_container_width=True)
+        st.markdown("⚡ **This chart shows the combined grid power measured by both the Fronius and GoodWe sensors, providing a holistic view of your system's total grid contribution.**")
+
+    # ---- Weather Parameter Charts ----
+    weather_chart_cols = [c for c in df_weather.columns if c not in ["period_end", "period"]]
+    for param in weather_chart_cols:
+        if param not in df.columns or df[param].dtype not in [float, int]:
+            continue
+        st.subheader(f"🌦️ {param.replace('_', ' ').title()}")
+        fig_weather = go.Figure()
+        fig_weather.add_trace(go.Scatter(
+            x=df["period_end"], y=df[param],
+            name=param, line=dict(color="#1e90ff")))
+        st.plotly_chart(fig_weather, use_container_width=True)
+        # Add explainer below each chart if available
+        key = param.lower()
+        explainer = WEATHER_PARAM_EXPLAINERS.get(key)
+        if explainer:
+            st.markdown(f"<div style='margin-bottom:2em'>{explainer}</div>", unsafe_allow_html=True)
 
     if "weather_type" in df.columns:
         st.subheader("🌤️ Weather Type Overview")
