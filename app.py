@@ -1,4 +1,4 @@
-# ✅ FULL WORKING VERSION — Unified Solar Dashboard by Hussein Akim
+# ✅ FULL WORKING VERSION — Unified Solar Dashboard by Hussein Akim (Enhanced with Sliders & Data Fixes)
 
 import os
 import streamlit as st
@@ -120,7 +120,7 @@ def load_solar(files):
         df['last_changed'] = pd.to_datetime(df['last_changed'], utc=True, errors='coerce')
         df = df.dropna(subset=['last_changed'])
         df['last_changed'] = df['last_changed'].dt.tz_convert(TZ).dt.tz_localize(None)
-        df['state'] = pd.to_numeric(df['state'], errors='coerce')
+        df['state'] = pd.to_numeric(df['state'], errors='coerce').abs()  # Make values positive
         df['entity_id'] = df['entity_id'].str.lower().str.strip()
         dfs.append(df)
     return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
@@ -168,9 +168,31 @@ if filtered.empty:
     st.stop()
 
 # ---- Plot Charts ----
+def slider_chart(df, x_col, y_col, title, color):
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df[x_col], y=df[y_col], name=y_col, line=dict(color=color)))
+    fig.update_layout(
+        title=title,
+        xaxis=dict(
+            title=x_col,
+            rangeslider=dict(visible=True),
+            rangeselector=dict(
+                buttons=list([
+                    dict(count=1, label="1d", step="day", stepmode="backward"),
+                    dict(count=7, label="1w", step="day", stepmode="backward"),
+                    dict(count=1, label="1m", step="month", stepmode="backward"),
+                    dict(step="all")
+                ])
+            ),
+            type="date"
+        ),
+        yaxis=dict(title=y_col),
+        hovermode='x unified'
+    )
+    return fig
+
 st.subheader("🌞 Actual vs Expected Power")
-fig = go.Figure()
-fig.add_trace(go.Scatter(x=filtered['last_changed'], y=filtered['state'], name="Actual", line=dict(color="green")))
+fig = slider_chart(filtered, 'last_changed', 'state', "Actual Power", "green")
 if 'expected_power_kw' in filtered.columns:
     fig.add_trace(go.Scatter(x=filtered['last_changed'], y=filtered['expected_power_kw'], name="Expected", line=dict(color="orange")))
 st.plotly_chart(fig, use_container_width=True)
@@ -178,16 +200,14 @@ st.plotly_chart(fig, use_container_width=True)
 if 'sensor.fronius_grid_power' in filtered.columns and 'sensor.goodwe_grid_power' in filtered.columns:
     st.subheader("⚡ Sum of Fronius and GoodWe Grid Power")
     filtered['sum_grid_power'] = filtered['sensor.fronius_grid_power'].fillna(0) + filtered['sensor.goodwe_grid_power'].fillna(0)
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=filtered['last_changed'], y=filtered['sum_grid_power'], name="Sum Grid Power", line=dict(color="#A020F0")))
+    fig = slider_chart(filtered, 'last_changed', 'sum_grid_power', "Sum Grid Power", "#A020F0")
     st.plotly_chart(fig, use_container_width=True)
 
 st.subheader("🌦️ Weather Parameters")
 for col in [c for c in weather_df.columns if c not in ['period_end', 'period']]:
     if col not in filtered.columns or filtered[col].dtype not in [float, int]:
         continue
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=filtered['period_end'], y=filtered[col], name=col))
+    fig = slider_chart(filtered, 'period_end', col, col, "#1e90ff")
     st.plotly_chart(fig, use_container_width=True)
     if col in WEATHER_PARAM_EXPLAINERS:
         st.markdown(WEATHER_PARAM_EXPLAINERS[col])
