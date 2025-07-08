@@ -1,4 +1,4 @@
-# Merged Streamlit App: Unified + Upgraded Solar Dashboard by Hussein Akim (Debugged)
+# ✅ FULL WORKING VERSION — Unified Solar Dashboard by Hussein Akim
 
 import os
 import streamlit as st
@@ -56,7 +56,7 @@ def archive_old_files(folder):
 archive_old_files(SOLAR_DIR)
 archive_old_files(WEATHER_DIR)
 
-# ---- File Handlers ----
+# ---- File Handling ----
 def save_files_to_disk(uploaded_files, folder):
     for file in uploaded_files:
         file_path = os.path.join(folder, file.name)
@@ -70,46 +70,42 @@ def delete_files_from_disk(folder):
     for f in os.listdir(folder):
         os.remove(os.path.join(folder, f))
 
-# ---- Upload UI ----
-def upload_section(label, folder):
-    st.write(f"### {label}")
-    existing_files = load_files_from_disk(folder)
-    if existing_files:
-        st.success(f"{len(existing_files)} file(s) stored")
-        for f in existing_files:
-            col1, col2 = st.columns([4, 1])
-            col1.write(os.path.basename(f))
-            if col2.button("Delete", key=f"del_{f}"):
-                os.remove(f)
-                st.experimental_rerun()
-        if st.button(f"Clear all {label}"):
-            delete_files_from_disk(folder)
-            st.experimental_rerun()
-
-    uploaded_files = st.file_uploader(f"Add {label}", type="csv", accept_multiple_files=True, key=f"uploader_{label}")
-    if uploaded_files:
-        st.write("Uploaded files:", [f.name for f in uploaded_files])
-        if st.button(f"Upload {label}"):
-            save_files_to_disk(uploaded_files, folder)
-            st.success("Files uploaded.")
-            st.experimental_rerun()
-    return load_files_from_disk(folder)
-
-# ---- App Layout ----
+# ---- App UI ----
 st.set_page_config(page_title="Solar Dashboard", layout="wide")
 st.title("☀️ Unified Solar Dashboard")
 
 st.sidebar.header("📁 Upload Data")
-with st.sidebar.expander("Solar Data", expanded=True):
-    solar_files = upload_section("Solar", SOLAR_DIR)
-with st.sidebar.expander("Weather Data", expanded=True):
-    weather_files = upload_section("Weather", WEATHER_DIR)
 
-st.write("Solar Files:", solar_files)
-st.write("Weather Files:", weather_files)
+with st.sidebar.expander("Solar Data", expanded=True):
+    solar_uploaded = st.file_uploader("Upload Solar CSV(s)", type="csv", accept_multiple_files=True, key="solar")
+    if solar_uploaded:
+        st.session_state['solar_ready'] = True
+        st.success(f"{len(solar_uploaded)} file(s) ready")
+
+with st.sidebar.expander("Weather Data", expanded=True):
+    weather_uploaded = st.file_uploader("Upload Weather CSV(s)", type="csv", accept_multiple_files=True, key="weather")
+    if weather_uploaded:
+        st.session_state['weather_ready'] = True
+        st.success(f"{len(weather_uploaded)} file(s) ready")
+
+# ---- Run Analysis Button ----
+run_btn = st.sidebar.button("🚀 Run Analysis")
+
+if run_btn:
+    if not solar_uploaded or not weather_uploaded:
+        st.error("Please upload both solar and weather CSV files.")
+        st.stop()
+    save_files_to_disk(solar_uploaded, SOLAR_DIR)
+    save_files_to_disk(weather_uploaded, WEATHER_DIR)
+    st.success("✅ Files saved. Reloading...")
+    st.rerun()
+
+# ---- Main Logic ----
+solar_files = load_files_from_disk(SOLAR_DIR)
+weather_files = load_files_from_disk(WEATHER_DIR)
 
 if not solar_files or not weather_files:
-    st.warning("Upload both solar and weather data to begin analysis.")
+    st.warning("Upload both solar and weather data and click 'Run Analysis'.")
     st.stop()
 
 @st.cache_data(show_spinner=False)
