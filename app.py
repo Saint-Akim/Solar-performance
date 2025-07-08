@@ -1,4 +1,4 @@
-# ✅ FULL WORKING VERSION — Unified Solar Dashboard by Hussein Akim (With Friendly Names & Parameter Selection)
+# ✅ FULL WORKING VERSION — Unified Solar Dashboard by Hussein Akim (kW units + Cleaned)
 
 import os
 import streamlit as st
@@ -16,23 +16,26 @@ TOTAL_CAPACITY_KW = 221.43
 PERFORMANCE_RATIO = 0.8
 TZ = 'Africa/Johannesburg'
 
-# ---- Friendly Display Names ----
+# ---- Setup ----
+os.makedirs(SOLAR_DIR, exist_ok=True)
+os.makedirs(WEATHER_DIR, exist_ok=True)
+os.makedirs(ARCHIVE_DIR, exist_ok=True)
+
+# ---- Friendly Names ----
 FRIENDLY_NAMES = {
-    "state": "Actual Solar Power",
-    "expected_power_kw": "Expected Solar Power",
-    "sensor.fronius_grid_power": "Fronius Grid Power",
-    "sensor.goodwe_grid_power": "GoodWe Grid Power",
-    "sum_grid_power": "Total Grid Power",
-    "air_temp": "Air Temperature",
-    "gti": "Global Tilt Irradiance (GTI)",
-    "ghi": "Global Horizontal Irradiance (GHI)",
-    "cloud_opacity": "Cloud Opacity",
-    "humidity": "Humidity",
-    "wind_speed": "Wind Speed",
+    "sensor.fronius_grid_power": "Fronius Grid Power (kW)",
+    "sensor.goodwe_grid_power": "GoodWe Grid Power (kW)",
+    "sum_grid_power": "Actual Power (kW)",
+    "expected_power_kw": "Expected Power (kW)",
+    "air_temp": "Air Temperature (°C)",
+    "gti": "GTI (W/m²)",
+    "ghi": "GHI (W/m²)",
+    "cloud_opacity": "Cloud Opacity (%)",
+    "humidity": "Humidity (%)",
+    "wind_speed": "Wind Speed (m/s)",
     "weather_type": "Weather Type"
 }
 
-# ---- Weather Explainable Info ----
 WEATHER_PARAM_EXPLAINERS = {
     "air_temp": "🌡️ Air Temperature affects panel efficiency.",
     "gti": "📈 GTI: Tilted surface irradiance.",
@@ -51,11 +54,6 @@ WEATHER_TYPE_DISPLAY = {
     "MOSTLY SUNNY": "⛅ Mostly Sunny",
     "SUNNY": "🌞 Sunny"
 }
-
-# ---- Setup ----
-os.makedirs(SOLAR_DIR, exist_ok=True)
-os.makedirs(WEATHER_DIR, exist_ok=True)
-os.makedirs(ARCHIVE_DIR, exist_ok=True)
 
 # ---- Utilities ----
 def archive_old_files(folder):
@@ -115,7 +113,6 @@ if run_btn:
     st.success("✅ Files saved. Reloading...")
     st.rerun()
 
-# ---- Main Logic ----
 solar_files = load_files_from_disk(SOLAR_DIR)
 weather_files = load_files_from_disk(WEATHER_DIR)
 
@@ -128,16 +125,14 @@ def load_solar(files):
     dfs = []
     for f in files:
         df = pd.read_csv(f)
-        required_cols = {'last_changed', 'state', 'entity_id'}
-        if not required_cols.issubset(df.columns):
-            st.error(f"Missing required columns in {f}: {required_cols - set(df.columns)}")
-            continue
-        df['last_changed'] = pd.to_datetime(df['last_changed'], utc=True, errors='coerce')
-        df = df.dropna(subset=['last_changed'])
-        df['last_changed'] = df['last_changed'].dt.tz_convert(TZ).dt.tz_localize(None)
-        df['state'] = pd.to_numeric(df['state'], errors='coerce').abs()
-        df['entity_id'] = df['entity_id'].str.lower().str.strip()
-        dfs.append(df)
+        if {'last_changed', 'state', 'entity_id'}.issubset(df.columns):
+            df['last_changed'] = pd.to_datetime(df['last_changed'], utc=True, errors='coerce')
+            df = df.dropna(subset=['last_changed'])
+            df['last_changed'] = df['last_changed'].dt.tz_convert(TZ).dt.tz_localize(None)
+            df['state'] = pd.to_numeric(df['state'], errors='coerce').abs()
+            df['entity_id'] = df['entity_id'].str.lower().str.strip()
+            pivoted = df.pivot_table(index='last_changed', columns='entity_id', values='state', aggfunc='mean').reset_index()
+            dfs.append(pivoted)
     return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
 @st.cache_data(show_spinner=False)
@@ -146,7 +141,6 @@ def load_weather(files):
     for f in files:
         df = pd.read_csv(f)
         if 'period_end' not in df.columns:
-            st.error(f"Missing 'period_end' in weather file {f}")
             continue
         df['period_end'] = pd.to_datetime(df['period_end'], utc=True, errors='coerce')
         df = df.dropna(subset=['period_end'])
@@ -171,7 +165,6 @@ except Exception as e:
     st.error(f"Error during file loading: {e}")
     st.stop()
 
-# ---- Date Filter ----
 st.sidebar.header("📅 Date Filter")
 min_date = merged_df['last_changed'].min()
 max_date = merged_df['last_changed'].max()
@@ -182,58 +175,37 @@ if filtered.empty:
     st.warning("No data available in the selected date range.")
     st.stop()
 
-# ---- Chart Plotter ----
+# ---- Actual Power Calculation ----
+if 'sensor.fronius_grid_power' in filtered.columns and 'sensor.goodwe_grid_power' in filtered.columns:
+    filtered['sensor.fronius_grid_power'] = filtered['sensor.fronius_grid_power'] / 1000
+    filtered['sensor.goodwe_grid_power'] = filtered['sensor.goodwe_grid_power'] / 1000
+    filtered['sum_grid_power'] = filtered['sensor.fronius_grid_power'].fillna(0) + filtered['sensor.goodwe_grid_power'].fillna(0)
+
+# ---- Chart Utility ----
 def slider_chart(df, x_col, y_col, title, color):
-    display_name = FRIENDLY_NAMES.get(y_col, y_col)
     fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=df[x_col], y=df[y_col],
-        name=display_name,
-        line=dict(color=color),
-        hovertemplate=f"{display_name}: %{{y:.2f}}<br>{x_col}: %{{x|%Y-%m-%d %H:%M}}"
-    ))
+    y_label = FRIENDLY_NAMES.get(y_col, y_col)
+    fig.add_trace(go.Scatter(x=df[x_col], y=df[y_col], name=y_label, line=dict(color=color)))
     fig.update_layout(
-        title=title or display_name,
-        xaxis=dict(
-            title=x_col,
-            rangeslider=dict(visible=True),
-            rangeselector=dict(buttons=list([
-                dict(count=1, label="1d", step="day", stepmode="backward"),
-                dict(count=7, label="1w", step="day", stepmode="backward"),
-                dict(count=1, label="1m", step="month", stepmode="backward"),
-                dict(step="all")
-            ])),
-            type="date"
-        ),
-        yaxis=dict(title=display_name),
+        title=title,
+        xaxis=dict(title=x_col, rangeslider=dict(visible=True), type="date"),
+        yaxis=dict(title=y_label),
         hovermode='x unified'
     )
     return fig
 
-st.subheader("🌞 Solar Power Output (Actual vs Expected)")
-fig = slider_chart(filtered, 'last_changed', 'state', None, "green")
+# ---- Main Charts ----
+st.subheader("🌞 Actual vs Expected Power")
+fig = slider_chart(filtered, 'last_changed', 'sum_grid_power', "Actual Power (kW)", "green")
 if 'expected_power_kw' in filtered.columns:
     fig.add_trace(go.Scatter(x=filtered['last_changed'], y=filtered['expected_power_kw'], name=FRIENDLY_NAMES['expected_power_kw'], line=dict(color="orange")))
 st.plotly_chart(fig, use_container_width=True)
 
-if 'sensor.fronius_grid_power' in filtered.columns and 'sensor.goodwe_grid_power' in filtered.columns:
-    st.subheader("⚡ Total Grid Power (Fronius + GoodWe)")
-    filtered['sum_grid_power'] = filtered['sensor.fronius_grid_power'].fillna(0) + filtered['sensor.goodwe_grid_power'].fillna(0)
-    fig = slider_chart(filtered, 'last_changed', 'sum_grid_power', None, "#A020F0")
-    st.plotly_chart(fig, use_container_width=True)
-
-st.subheader("🌦️ Select Weather Parameter to Plot")
-weather_numeric_cols = [col for col in weather_df.columns if col not in ['period_end', 'period'] and filtered[col].dtype in [float, int]]
-
-selected_weather_cols = st.multiselect(
-    "Select weather parameters to display",
-    options=weather_numeric_cols,
-    format_func=lambda x: FRIENDLY_NAMES.get(x, x),
-    default=weather_numeric_cols[:2]
-)
-
-for col in selected_weather_cols:
-    fig = slider_chart(filtered, 'period_end', col, None, "#1e90ff")
+st.subheader("📊 Parameter Explorer")
+available_params = [c for c in filtered.columns if c not in ['last_changed', 'period_end', 'period'] and filtered[c].dtype != 'O']
+param_selection = st.multiselect("Select parameters to visualize:", available_params, default=['sensor.fronius_grid_power', 'sensor.goodwe_grid_power'])
+for col in param_selection:
+    fig = slider_chart(filtered, 'last_changed', col, FRIENDLY_NAMES.get(col, col), '#1e90ff')
     st.plotly_chart(fig, use_container_width=True)
     if col in WEATHER_PARAM_EXPLAINERS:
         st.markdown(WEATHER_PARAM_EXPLAINERS[col])
