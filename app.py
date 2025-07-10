@@ -26,16 +26,15 @@ GITHUB_WEATHER_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-perform
 
 # ---- UI Setup ----
 st.set_page_config(page_title="Unified Solar Dashboard", layout="wide")
-st.title("\U0001F31E GoodWe and Fronius Performance vs Weather Data")
+st.title("☀️ GoodWe and Fronius Performance vs Weather Data")
 
 # ---- Sidebar: Controls ----
-st.sidebar.header("\U0001F4C5 Controls")
+st.sidebar.header("📅 Date & Factors")
 site = st.sidebar.selectbox("Site", ["Southern Paarl"])
 
 with st.sidebar.form("adjust_factors"):
     gti_factor = st.slider("GTI Multiplier", 0.5, 1.5, DEFAULT_GTI_FACTOR, 0.01)
     pr = st.slider("Performance Ratio (PR)", 0.5, 1.0, DEFAULT_PR, 0.01)
-    show_weather_explain = st.checkbox("Show Weather Impact Explanations", value=True)
     submitted = st.form_submit_button("Apply")
 
 # ---- Helper: Load CSVs from GitHub ----
@@ -89,56 +88,73 @@ if submitted:
 else:
     merged_df['expected_power_kw'] = merged_df.get('gti', 0) * TOTAL_CAPACITY_KW * DEFAULT_PR * DEFAULT_GTI_FACTOR / 1000
 
-st.sidebar.header("\U0001F4C6 Date Filter")
+# ---- Date Filter ----
 min_date = merged_df['last_changed'].min()
 max_date = merged_df['last_changed'].max()
-start, end = st.sidebar.date_input("Date Range", [min_date, max_date])
+start, end = st.sidebar.date_input("Select Date Range", [min_date, max_date])
 merged_df = merged_df[(merged_df['last_changed'] >= pd.to_datetime(start)) & (merged_df['last_changed'] <= pd.to_datetime(end))]
 
-# ---- Analysis ----
-st.subheader("\U0001F4CA Actual vs Expected Power")
-fig = go.Figure()
-fig.add_trace(go.Scatter(x=merged_df['last_changed'], y=merged_df['actual_power_kw'], name="Actual Power (kW)", line=dict(color="green")))
+# ---- Chart Utility with Rangeslider ----
+def slider_chart(df, x_col, y_col, title, color):
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df[x_col], y=df[y_col], name=y_col, line=dict(color=color)))
+    fig.update_layout(
+        title=title,
+        xaxis=dict(
+            title=x_col,
+            rangeslider=dict(visible=True),
+            type="date"
+        ),
+        yaxis=dict(title=y_col),
+        hovermode='x unified'
+    )
+    return fig
+
+# ---- Actual vs Expected Power ----
+st.subheader("🌞 Actual vs Expected Power")
+fig = slider_chart(merged_df, 'last_changed', 'actual_power_kw', "Actual Power (kW)", "green")
 fig.add_trace(go.Scatter(x=merged_df['last_changed'], y=merged_df['expected_power_kw'], name="Expected Power (kW)", line=dict(color="orange")))
-fig.update_layout(xaxis_title="Time", yaxis_title="Power (kW)", hovermode="x unified")
 st.plotly_chart(fig, use_container_width=True)
 
 # ---- Shortfall ----
-max_actual = merged_df['actual_power_kw'].max()
-st.metric("\U0001F4A1 Max Actual Power (kW)", f"{max_actual:.2f} kW")
-shortfall = TOTAL_CAPACITY_KW - max_actual
-st.metric("\u274C Shortfall from Capacity", f"{shortfall:.2f} kW")
+st.metric("💡 Max Actual Power (kW)", f"{merged_df['actual_power_kw'].max():.2f} kW")
+st.metric("❌ Shortfall from Capacity", f"{TOTAL_CAPACITY_KW - merged_df['actual_power_kw'].max():.2f} kW")
 
-# ---- Per-inverter comparison ----
-st.subheader("\u26A1 Inverter Performance")
-fronius_max = merged_df['sensor.fronius_grid_power'].max()
-goodwe_max = merged_df['sensor.goodwe_grid_power'].max()
-st.metric("Fronius Max Output", f"{fronius_max:.2f} kW / {FRONIUS_KW} kW")
-st.metric("GoodWe Max Output", f"{goodwe_max:.2f} kW / {GOODWE_KW} kW")
+# ---- Inverter Stats ----
+st.subheader("⚡ Inverter Performance")
+st.metric("Fronius Max Output", f"{merged_df['sensor.fronius_grid_power'].max():.2f} kW / {FRONIUS_KW} kW")
+st.metric("GoodWe Max Output", f"{merged_df['sensor.goodwe_grid_power'].max():.2f} kW / {GOODWE_KW} kW")
 
-# ---- Weather Parameter Explorer ----
-st.subheader("\U0001F325\uFE0F Weather Parameters vs Power")
+# ---- Dual Column Parameter Charts ----
+st.subheader("📊 Weather and Solar Parameter Explorer")
 weather_cols = [c for c in weather_df_raw.columns if c not in ['period', 'period_end'] and pd.api.types.is_numeric_dtype(weather_df_raw[c])]
-selected_weather = st.multiselect("Select Weather Parameters", weather_cols, default=['gti', 'ghi', 'cloud_opacity'])
+solar_cols = [c for c in merged_df.columns if c.startswith('sensor.')]
 
-col1, col2 = st.columns(2)
-for i, param in enumerate(selected_weather):
-    with col1 if i % 2 == 0 else col2:
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=merged_df['last_changed'], y=merged_df[param], name=param, line=dict(color="#1e90ff")))
-        fig.update_layout(title=param, xaxis_title="Time", yaxis_title=param, hovermode="x unified")
+left, right = st.columns(2)
+
+with left:
+    selected_solar = st.multiselect("Select Solar Parameters", solar_cols, default=['sensor.fronius_grid_power'])
+    for param in selected_solar:
+        fig = slider_chart(merged_df, 'last_changed', param, f"{param} over time", '#00cc99')
         st.plotly_chart(fig, use_container_width=True)
 
-if show_weather_explain:
-    st.subheader("\U0001F4D6 Weather Parameter Impact Explanation")
-    st.markdown("""
-    - **GTI (Global Tilted Irradiance):** Measures sunlight on tilted panel surface — higher GTI = more energy.
-    - **GHI (Global Horizontal Irradiance):** Sunlight on flat surface, used for expected yield models.
-    - **Cloud Opacity:** High values reduce light intensity and panel output.
-    - **Humidity:** Excessive moisture can reduce panel efficiency.
-    - **Air Temperature:** High temps can reduce voltage and overall efficiency.
-    - **Wind Speed:** Moderate wind cools panels, improving efficiency slightly.
-    """)
+with right:
+    selected_weather = st.multiselect("Select Weather Parameters", weather_cols, default=['gti', 'ghi'])
+    weather_explainers = {
+        "gti": "📈 **GTI (Global Tilted Irradiance):** Measures sunlight hitting a tilted surface—directly affects panel output.",
+        "ghi": "📉 **GHI (Global Horizontal Irradiance):** Measures sunlight on a flat surface, used as base for most solar forecasts.",
+        "air_temp": "🌡️ **Air Temperature:** High temps can reduce panel voltage—about 0.4% drop per °C above 25°C.",
+        "cloud_opacity": "☁️ **Cloud Opacity:** Higher values = more sunlight blocked, reducing solar energy.",
+        "humidity": "💧 **Humidity:** More humidity increases haze/clouds = less solar power.",
+        "wind_speed": "💨 **Wind Speed:** Helps cool panels, slightly improving efficiency.",
+        "expected_power_kw": "🔋 **Expected Power:** Calculated based on GTI, system size, and PR."
+    }
+    for param in selected_weather:
+        fig = slider_chart(merged_df, 'last_changed', param, f"{param} over time", '#1e90ff')
+        st.plotly_chart(fig, use_container_width=True)
+        if param in weather_explainers:
+            st.markdown(weather_explainers[param])
 
+# ---- Footer ----
 st.markdown("---")
 st.markdown("<center><small>Built by Hussein Akim — Unified Solar Insights</small></center>", unsafe_allow_html=True)
