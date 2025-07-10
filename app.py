@@ -1,161 +1,144 @@
-# ✅ FINAL VERSION — Unified Solar Dashboard by Hussein Akim
-# Features: GitHub data loading, full sidebar control panel, GTI & PR tuning, dual-chart explorer, kW units, max power recording
-
-import os
-import pandas as pd
 import streamlit as st
+import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
+import requests
+from io import StringIO
 
-# ---- Configuration ----
+# ---- Config ----
 TOTAL_CAPACITY_KW = 221.43
-PERFORMANCE_RATIO = 0.8
-TZ = 'Africa/Johannesburg'
-SOLAR_URLS = [
+FRONIUS_KW = 60
+GOODWE_KW = 110
+TZ = "Africa/Johannesburg"
+DEFAULT_GTI_FACTOR = 1.0
+DEFAULT_PR = 0.8
+
+# ---- GitHub URLs ----
+GITHUB_SOLAR_URLS = [
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius-Jan.csv",
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goodwe%26Fronius_Feb.csv",
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goddwe%26Fronius_March.csv",
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe%26Fronius_April.csv",
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe%26Fronius_may.csv"
 ]
-WEATHER_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/csv_-33.78116654125097_19.00166906876145_horizontal_single_axis_23_30_PT60M.csv"
 
-# ---- Friendly Names ----
-FRIENDLY_NAMES = {
-    "sensor.fronius_grid_power": "Fronius Grid Power (kW)",
-    "sensor.goodwe_grid_power": "GoodWe Grid Power (kW)",
-    "sum_grid_power": "Actual Power (kW)",
-    "expected_power_kw": "Expected Power (kW)",
-    "air_temp": "Air Temperature (°C)",
-    "gti": "GTI (W/m²)",
-    "ghi": "GHI (W/m²)",
-    "cloud_opacity": "Cloud Opacity (%)",
-    "humidity": "Humidity (%)",
-    "wind_speed": "Wind Speed (m/s)",
-    "weather_type": "Weather Type"
-}
-
-WEATHER_PARAM_EXPLAINERS = {
-    "air_temp": "🌡️ Air Temperature affects panel efficiency.",
-    "gti": "📈 GTI: Tilted surface irradiance.",
-    "ghi": "📉 GHI: Horizontal irradiance.",
-    "cloud_opacity": "☁️ Cloudiness effect.",
-    "humidity": "💧 Humidity level.",
-    "wind_speed": "💨 Cooling effect on panels.",
-    "expected_power_kw": "🔋 Expected power based on irradiance.",
-}
+GITHUB_WEATHER_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/csv_-33.78116654125097_19.00166906876145_horizontal_single_axis_23_30_PT60M.csv"
 
 # ---- UI Setup ----
 st.set_page_config(page_title="Unified Solar Dashboard", layout="wide")
-st.title("☀️ GoodWe and Fronius Performance vs Weather Data")
+st.title("\U0001F31E GoodWe and Fronius Performance vs Weather Data")
 
-# Sidebar Controls
-st.sidebar.header("🗓️ Controls")
+# ---- Sidebar: Controls ----
+st.sidebar.header("\U0001F4C5 Controls")
 site = st.sidebar.selectbox("Site", ["Southern Paarl"])
-gti_factor = st.sidebar.slider("GTI Factor (W/m²)", 0.5, 1.5, 1.0)
-pr_ratio = st.sidebar.slider("Performance Ratio", 0.5, 1.0, PERFORMANCE_RATIO)
 
-# ---- Load Data ----
-@st.cache_data(show_spinner=False)
-def load_solar():
+with st.sidebar.form("adjust_factors"):
+    gti_factor = st.slider("GTI Multiplier", 0.5, 1.5, DEFAULT_GTI_FACTOR, 0.01)
+    pr = st.slider("Performance Ratio (PR)", 0.5, 1.0, DEFAULT_PR, 0.01)
+    show_weather_explain = st.checkbox("Show Weather Impact Explanations", value=True)
+    submitted = st.form_submit_button("Apply")
+
+# ---- Helper: Load CSVs from GitHub ----
+def load_csv_from_github(urls):
     dfs = []
-    for url in SOLAR_URLS:
-        df = pd.read_csv(url)
-        if {'last_changed', 'state', 'entity_id'}.issubset(df.columns):
-            df['last_changed'] = pd.to_datetime(df['last_changed'], utc=True, errors='coerce')
-            df = df.dropna(subset=['last_changed'])
-            df['last_changed'] = df['last_changed'].dt.tz_convert(TZ).dt.tz_localize(None)
-            df['state'] = pd.to_numeric(df['state'], errors='coerce').abs()
-            df['entity_id'] = df['entity_id'].str.lower().str.strip()
-            pivoted = df.pivot_table(index='last_changed', columns='entity_id', values='state', aggfunc='mean').reset_index()
-            dfs.append(pivoted)
-    return pd.concat(dfs, ignore_index=True)
+    for url in urls:
+        try:
+            response = requests.get(url)
+            if response.status_code == 200:
+                df = pd.read_csv(StringIO(response.text))
+                dfs.append(df)
+        except Exception as e:
+            st.error(f"Failed to load {url}: {e}")
+    return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
-@st.cache_data(show_spinner=False)
-def load_weather():
-    df = pd.read_csv(WEATHER_URL)
-    df['period_end'] = pd.to_datetime(df['period_end'], utc=True, errors='coerce')
-    df = df.dropna(subset=['period_end'])
-    df['period_end'] = df['period_end'].dt.tz_convert(TZ).dt.tz_localize(None)
-    for col in df.columns:
-        if col not in ['period_end', 'period']:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-    if 'gti' in df.columns:
-        df['expected_power_kw'] = df['gti'] * gti_factor * TOTAL_CAPACITY_KW * pr_ratio / 1000
-    return df
+# ---- Load and clean solar data ----
+solar_df_raw = load_csv_from_github(GITHUB_SOLAR_URLS)
+weather_df_raw = load_csv_from_github([GITHUB_WEATHER_URL])
 
-solar_df = load_solar()
-weather_df = load_weather()
-
-# ---- Merge & Clean ----
-merged_df = pd.merge_asof(solar_df.sort_values("last_changed"), weather_df.sort_values("period_end"), left_on="last_changed", right_on="period_end")
-
-# Add calculated columns
-if 'sensor.fronius_grid_power' in merged_df.columns:
-    merged_df['sensor.fronius_grid_power'] /= 1000
-if 'sensor.goodwe_grid_power' in merged_df.columns:
-    merged_df['sensor.goodwe_grid_power'] /= 1000
-
-merged_df['sum_grid_power'] = merged_df.get('sensor.fronius_grid_power', 0).fillna(0) + merged_df.get('sensor.goodwe_grid_power', 0).fillna(0)
-
-# Record Max Values
-max_fronius = merged_df['sensor.fronius_grid_power'].max()
-max_goodwe = merged_df['sensor.goodwe_grid_power'].max()
-
-# ---- Date Filter ----
-st.sidebar.markdown("---")
-st.sidebar.subheader("📅 Date Range")
-start_date, end_date = st.sidebar.date_input("Select range", [merged_df['last_changed'].min(), merged_df['last_changed'].max()])
-filtered = merged_df[(merged_df['last_changed'] >= pd.to_datetime(start_date)) & (merged_df['last_changed'] <= pd.to_datetime(end_date))]
-
-if filtered.empty:
-    st.warning("No data available in the selected date range.")
+if solar_df_raw.empty or weather_df_raw.empty:
+    st.error("Solar or weather data could not be loaded.")
     st.stop()
 
-# ---- Chart Function ----
-def slider_chart(df, x_col, y_col, title, color):
-    label = FRIENDLY_NAMES.get(y_col, y_col)
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df[x_col], y=df[y_col], name=label, line=dict(color=color)))
-    fig.update_layout(
-        title=title,
-        xaxis=dict(title=x_col, rangeslider=dict(visible=True), type="date"),
-        yaxis=dict(title=label),
-        hovermode='x unified'
-    )
-    return fig
+solar_df_raw['last_changed'] = pd.to_datetime(solar_df_raw['last_changed'], utc=True, errors='coerce')
+solar_df_raw = solar_df_raw.dropna(subset=['last_changed'])
+solar_df_raw['last_changed'] = solar_df_raw['last_changed'].dt.tz_convert(TZ).dt.tz_localize(None)
+solar_df_raw['state'] = pd.to_numeric(solar_df_raw['state'], errors='coerce').abs()
+solar_df_raw['entity_id'] = solar_df_raw['entity_id'].str.strip().str.lower()
 
-# ---- Actual vs Expected ----
-st.subheader("🌞 Actual vs Expected Power")
-fig = slider_chart(filtered, 'last_changed', 'sum_grid_power', "Actual Power (kW)", "green")
-if 'expected_power_kw' in filtered.columns:
-    fig.add_trace(go.Scatter(x=filtered['last_changed'], y=filtered['expected_power_kw'], name=FRIENDLY_NAMES['expected_power_kw'], line=dict(color="orange")))
+pivoted = solar_df_raw.pivot_table(index='last_changed', columns='entity_id', values='state', aggfunc='mean').reset_index()
+
+weather_df_raw['period_end'] = pd.to_datetime(weather_df_raw['period_end'], utc=True, errors='coerce')
+weather_df_raw = weather_df_raw.dropna(subset=['period_end'])
+weather_df_raw['period_end'] = weather_df_raw['period_end'].dt.tz_convert(TZ).dt.tz_localize(None)
+for col in weather_df_raw.columns:
+    if col not in ['period_end', 'period']:
+        weather_df_raw[col] = pd.to_numeric(weather_df_raw[col], errors='coerce').fillna(0)
+
+merged_df = pd.merge_asof(
+    pivoted.sort_values("last_changed"),
+    weather_df_raw.sort_values("period_end"),
+    left_on="last_changed", right_on="period_end"
+)
+
+merged_df['sensor.fronius_grid_power'] = merged_df.get('sensor.fronius_grid_power', 0) / 1000
+merged_df['sensor.goodwe_grid_power'] = merged_df.get('sensor.goodwe_grid_power', 0) / 1000
+merged_df['actual_power_kw'] = merged_df['sensor.fronius_grid_power'].fillna(0) + merged_df['sensor.goodwe_grid_power'].fillna(0)
+
+if submitted:
+    merged_df['expected_power_kw'] = merged_df.get('gti', 0) * TOTAL_CAPACITY_KW * pr * gti_factor / 1000
+else:
+    merged_df['expected_power_kw'] = merged_df.get('gti', 0) * TOTAL_CAPACITY_KW * DEFAULT_PR * DEFAULT_GTI_FACTOR / 1000
+
+st.sidebar.header("\U0001F4C6 Date Filter")
+min_date = merged_df['last_changed'].min()
+max_date = merged_df['last_changed'].max()
+start, end = st.sidebar.date_input("Date Range", [min_date, max_date])
+merged_df = merged_df[(merged_df['last_changed'] >= pd.to_datetime(start)) & (merged_df['last_changed'] <= pd.to_datetime(end))]
+
+# ---- Analysis ----
+st.subheader("\U0001F4CA Actual vs Expected Power")
+fig = go.Figure()
+fig.add_trace(go.Scatter(x=merged_df['last_changed'], y=merged_df['actual_power_kw'], name="Actual Power (kW)", line=dict(color="green")))
+fig.add_trace(go.Scatter(x=merged_df['last_changed'], y=merged_df['expected_power_kw'], name="Expected Power (kW)", line=dict(color="orange")))
+fig.update_layout(xaxis_title="Time", yaxis_title="Power (kW)", hovermode="x unified")
 st.plotly_chart(fig, use_container_width=True)
 
-# ---- Dual Parameter Explorer ----
-st.subheader("📊 Parameter Explorer")
-params = [c for c in filtered.columns if c not in ['last_changed', 'period_end', 'period'] and filtered[c].dtype != 'O']
-solar_params = [p for p in params if 'grid' in p or 'power' in p]
-weather_params = [p for p in params if p not in solar_params]
+# ---- Shortfall ----
+max_actual = merged_df['actual_power_kw'].max()
+st.metric("\U0001F4A1 Max Actual Power (kW)", f"{max_actual:.2f} kW")
+shortfall = TOTAL_CAPACITY_KW - max_actual
+st.metric("\u274C Shortfall from Capacity", f"{shortfall:.2f} kW")
+
+# ---- Per-inverter comparison ----
+st.subheader("\u26A1 Inverter Performance")
+fronius_max = merged_df['sensor.fronius_grid_power'].max()
+goodwe_max = merged_df['sensor.goodwe_grid_power'].max()
+st.metric("Fronius Max Output", f"{fronius_max:.2f} kW / {FRONIUS_KW} kW")
+st.metric("GoodWe Max Output", f"{goodwe_max:.2f} kW / {GOODWE_KW} kW")
+
+# ---- Weather Parameter Explorer ----
+st.subheader("\U0001F325\uFE0F Weather Parameters vs Power")
+weather_cols = [c for c in weather_df_raw.columns if c not in ['period', 'period_end'] and pd.api.types.is_numeric_dtype(weather_df_raw[c])]
+selected_weather = st.multiselect("Select Weather Parameters", weather_cols, default=['gti', 'ghi', 'cloud_opacity'])
 
 col1, col2 = st.columns(2)
-with col1:
-    selected_solar = st.multiselect("🔌 Solar Parameters", solar_params, default=solar_params[:2])
-    for p in selected_solar:
-        st.plotly_chart(slider_chart(filtered, 'last_changed', p, FRIENDLY_NAMES.get(p, p), '#33CFA5'), use_container_width=True)
+for i, param in enumerate(selected_weather):
+    with col1 if i % 2 == 0 else col2:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=merged_df['last_changed'], y=merged_df[param], name=param, line=dict(color="#1e90ff")))
+        fig.update_layout(title=param, xaxis_title="Time", yaxis_title=param, hovermode="x unified")
+        st.plotly_chart(fig, use_container_width=True)
 
-with col2:
-    selected_weather = st.multiselect("☁️ Weather Parameters", weather_params, default=weather_params[:2])
-    for p in selected_weather:
-        st.plotly_chart(slider_chart(filtered, 'period_end', p, FRIENDLY_NAMES.get(p, p), '#1f77b4'), use_container_width=True)
-        if p in WEATHER_PARAM_EXPLAINERS:
-            st.markdown(WEATHER_PARAM_EXPLAINERS[p])
+if show_weather_explain:
+    st.subheader("\U0001F4D6 Weather Parameter Impact Explanation")
+    st.markdown("""
+    - **GTI (Global Tilted Irradiance):** Measures sunlight on tilted panel surface — higher GTI = more energy.
+    - **GHI (Global Horizontal Irradiance):** Sunlight on flat surface, used for expected yield models.
+    - **Cloud Opacity:** High values reduce light intensity and panel output.
+    - **Humidity:** Excessive moisture can reduce panel efficiency.
+    - **Air Temperature:** High temps can reduce voltage and overall efficiency.
+    - **Wind Speed:** Moderate wind cools panels, improving efficiency slightly.
+    """)
 
-# ---- Max Power Display ----
-st.markdown(f"**🔋 Max Fronius Grid Power:** {max_fronius:.2f} kW")
-st.markdown(f"**🔋 Max GoodWe Grid Power:** {max_goodwe:.2f} kW")
-
-# ---- Export ----
-st.download_button("📄 Download Merged CSV", filtered.to_csv(index=False), file_name="merged_data.csv")
 st.markdown("---")
 st.markdown("<center><small>Built by Hussein Akim — Unified Solar Insights</small></center>", unsafe_allow_html=True)
