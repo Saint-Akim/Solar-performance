@@ -15,7 +15,7 @@ TOTAL_CAPACITY_KW = 221.43
 PERFORMANCE_RATIO = 0.8
 TZ = 'Africa/Johannesburg'
 
-ADMIN_PASSWORD = "your_admin_password"  # <<<--- CHANGE THIS TO YOUR ACTUAL PASSWORD
+ADMIN_PASSWORD = "Saint@123"  # <<<--- CHANGE THIS TO YOUR ACTUAL PASSWORD
 
 # ---- Setup ----
 os.makedirs(SOLAR_DIR, exist_ok=True)
