@@ -1,5 +1,4 @@
 # ✅ FULL WORKING VERSION — Unified Solar Dashboard by Hussein Akim (kW units + Cleaned)
-
 import os
 import streamlit as st
 import pandas as pd
@@ -15,6 +14,8 @@ ARCHIVE_DIR = os.path.join(UPLOAD_ROOT, "archive")
 TOTAL_CAPACITY_KW = 221.43
 PERFORMANCE_RATIO = 0.8
 TZ = 'Africa/Johannesburg'
+
+ADMIN_PASSWORD = "your_admin_password"  # <<<--- CHANGE THIS TO YOUR ACTUAL PASSWORD
 
 # ---- Setup ----
 os.makedirs(SOLAR_DIR, exist_ok=True)
@@ -35,7 +36,6 @@ FRIENDLY_NAMES = {
     "wind_speed": "Wind Speed (m/s)",
     "weather_type": "Weather Type"
 }
-
 WEATHER_PARAM_EXPLAINERS = {
     "air_temp": "🌡️ Air Temperature affects panel efficiency.",
     "gti": "📈 GTI: Tilted surface irradiance.",
@@ -47,7 +47,6 @@ WEATHER_PARAM_EXPLAINERS = {
     "expected_power_kw": "🔋 Expected power based on irradiance.",
     "period_end": "🕒 Weather timestamp."
 }
-
 WEATHER_TYPE_DISPLAY = {
     "CLEAR": "☀️ Clear",
     "MOSTLY CLEAR": "🌤️ Mostly Clear",
@@ -84,42 +83,90 @@ def delete_files_from_disk(folder):
     for f in os.listdir(folder):
         os.remove(os.path.join(folder, f))
 
+# ---- Admin Auth ----
+def is_admin():
+    return st.session_state.get('is_admin', False)
+
+if 'auth_checked' not in st.session_state:
+    st.session_state['auth_checked'] = False
+
+if not st.session_state['auth_checked']:
+    with st.sidebar:
+        st.markdown("### 🔒 Admin Login (for uploading files)")
+        admin_pw = st.text_input("Enter admin password to unlock upload features", type="password")
+        if st.button("Login as Admin"):
+            if admin_pw == ADMIN_PASSWORD:
+                st.session_state['is_admin'] = True
+                st.success("Admin mode enabled.")
+            else:
+                st.session_state['is_admin'] = False
+                st.error("Incorrect password.")
+            st.session_state['auth_checked'] = True
+    st.stop()
+
 # ---- App UI ----
 st.set_page_config(page_title="Solar Dashboard", layout="wide")
 st.title("☀️ Goowe and Fronius Performance vs Weather data of Southern Paarl \n\n")
 
-st.sidebar.header("📁 Upload Data")
+# ---- Show currently uploaded files ----
+def list_uploaded_files():
+    solar_files = load_files_from_disk(SOLAR_DIR)
+    weather_files = load_files_from_disk(WEATHER_DIR)
+    return solar_files, weather_files
 
-with st.sidebar.expander("Solar Data", expanded=True):
-    solar_uploaded = st.file_uploader("Upload Solar CSV(s)", type="csv", accept_multiple_files=True, key="solar")
-    if solar_uploaded:
-        st.session_state['solar_ready'] = True
-        st.success(f"{len(solar_uploaded)} file(s) ready")
+solar_files, weather_files = list_uploaded_files()
 
-with st.sidebar.expander("Weather Data", expanded=True):
-    weather_uploaded = st.file_uploader("Upload Weather CSV(s)", type="csv", accept_multiple_files=True, key="weather")
-    if weather_uploaded:
-        st.session_state['weather_ready'] = True
-        st.success(f"{len(weather_uploaded)} file(s) ready")
+st.sidebar.markdown("### 📄 Previously Uploaded Files")
+st.sidebar.write("**Solar files:**")
+if solar_files:
+    for f in solar_files:
+        st.sidebar.write(os.path.basename(f))
+else:
+    st.sidebar.write("_No solar files uploaded yet_")
+st.sidebar.write("**Weather files:**")
+if weather_files:
+    for f in weather_files:
+        st.sidebar.write(os.path.basename(f))
+else:
+    st.sidebar.write("_No weather files uploaded yet_")
 
-run_btn = st.sidebar.button("🚀 Run Analysis")
+# ---- Upload Section (Admin Only) ----
+if is_admin():
+    st.sidebar.header("📁 Upload Data")
+    with st.sidebar.expander("Solar Data", expanded=True):
+        solar_uploaded = st.file_uploader("Upload Solar CSV(s)", type="csv", accept_multiple_files=True, key="solar")
+        if solar_uploaded:
+            st.session_state['solar_ready'] = True
+            st.success(f"{len(solar_uploaded)} file(s) ready")
+    with st.sidebar.expander("Weather Data", expanded=True):
+        weather_uploaded = st.file_uploader("Upload Weather CSV(s)", type="csv", accept_multiple_files=True, key="weather")
+        if weather_uploaded:
+            st.session_state['weather_ready'] = True
+            st.success(f"{len(weather_uploaded)} file(s) ready")
+    upload_btn = st.sidebar.button("🚀 Upload and Analyze")
+    if upload_btn:
+        if not solar_uploaded or not weather_uploaded:
+            st.error("Please upload both solar and weather CSV files.")
+            st.stop()
+        save_files_to_disk(solar_uploaded, SOLAR_DIR)
+        save_files_to_disk(weather_uploaded, WEATHER_DIR)
+        st.success("✅ Files saved. Reloading...")
+        st.rerun()
+else:
+    st.sidebar.info("You are in viewer mode. Only previously uploaded files are available for analysis.")
 
-if run_btn:
-    if not solar_uploaded or not weather_uploaded:
-        st.error("Please upload both solar and weather CSV files.")
-        st.stop()
-    save_files_to_disk(solar_uploaded, SOLAR_DIR)
-    save_files_to_disk(weather_uploaded, WEATHER_DIR)
-    st.success("✅ Files saved. Reloading...")
-    st.rerun()
-
-solar_files = load_files_from_disk(SOLAR_DIR)
-weather_files = load_files_from_disk(WEATHER_DIR)
+# ---- Analyze Button for All Users ----
+analyze_btn = st.sidebar.button("🔍 Analyze Data")
 
 if not solar_files or not weather_files:
-    st.warning("Upload both solar and weather data and click 'Run Analysis'.")
+    st.warning("No solar or weather files uploaded yet. (Admin must upload them first.)")
     st.stop()
 
+if not analyze_btn and not is_admin():
+    st.info("Click 'Analyze Data' to load and analyze the latest uploaded files.")
+    st.stop()
+
+# ---- Data Loading ----
 @st.cache_data(show_spinner=False)
 def load_solar(files):
     dfs = []
