@@ -10,3 +10,10 @@ matplotlib
 scipy
 numpy
 psutil
+streamlit>=1.10
+pandas>=2.0
+plotly>=5.0
+openpyxl>=3.0
+pyarrow>=12.0
+python-dateutil
+pytz
