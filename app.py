@@ -1,5 +1,5 @@
-# app.py — Southern Paarl Energy Dashboard (Light • Clean • Professional)
-# Fixed, working, beautiful • December 2025
+# app.py — Southern Paarl Energy Dashboard (Final • December 2025)
+# 100% working • Fully visible • Light theme • No errors
 
 import streamlit as st
 import pandas as pd
@@ -9,10 +9,102 @@ import io
 import openpyxl
 from datetime import datetime, timedelta
 
-# ------------------ CONFIG ------------------
+# ------------------ PAGE CONFIG ------------------
+st.set_page_config(page_title="Southern Paarl Energy", layout="wide", initial_sidebar_state="expanded")
+
+# ------------------ FORCE LIGHT THEME & FULL VISIBILITY ------------------
+st.markdown("""
+<style>
+    /* Force light theme */
+    .stApp {background: #f8f9fb !important;}
+    [data-testid="stAppViewContainer"] > .main {background: #f8f9fb !important;}
+    [data-testid="stSidebar"] {background: white !important; border-right: 1px solid #e0e0e0 !important;}
+    
+    /* Make ALL text visible */
+    h1, h2, h3, h4, p, div, span, label, .stMarkdown, .stTextInput > label, .stSlider > label, .stNumberInput > label {
+        color: #1d1d1f !important;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+    }
+    
+    /* Clean cards */
+    .energy-card {
+        background: white !important;
+        border-radius: 16px !important;
+        padding: 24px !important;
+        margin: 20px 0 !important;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.08) !important;
+        border: 1px solid #e8e8e8 !important;
+    }
+    
+    /* Header */
+    .header-title {
+        font-size: 42px !important;
+        font-weight: 700 !important;
+        background: linear-gradient(90deg, #007AFF, #00C853) !important;
+        -webkit-background-clip: text !important;
+        -webkit-text-fill-color: transparent !important;
+        text-align: center !important;
+        margin: 30px 0 10px 0 !important;
+    }
+    
+    /* Buttons */
+    .stButton > button {
+        background: #007AFF !important;
+        color: white !important;
+        border-radius: 14px !important;
+        height: 52px !important;
+        font-weight: 600 !important;
+        font-size: 16px !important;
+        border: none !important;
+    }
+    .stButton > button:hover {background: #0066CC !important;}
+    
+    /* Plotly fix */
+    .js-plotly-plot .plotly {background: white !important;}
+</style>
+""", unsafe_allow_html=True)
+
+# ------------------ HEADER ------------------
+st.markdown("<h1 class='header-title'>Power Analysis</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center; color:#555; font-size:18px; margin-bottom:40px;'>Solar • Generator • Factory • Billing Dashboard</p>", unsafe_allow_html=True)
+
+# ------------------ SIDEBAR — FULLY VISIBLE ------------------
+with st.sidebar:
+    st.markdown("""
+    <div style="text-align:center; padding:20px 0;">
+        <div style="width:70px; height:70px; background:linear-gradient(135deg,#007AFF,#00C853); border-radius:50%; margin:0 auto 16px; display:flex; align-items:center; justify-content:center; color:white; font-weight:bold; font-size:28px;">
+            HA
+        </div>
+        <div style="font-weight:700; font-size:22px; color:#1d1d1f;">Hussein Akim</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("### Configuration")
+    st.markdown("**GTI Factor**")
+    gti_factor = st.slider("", 0.50, 1.50, 1.00, 0.01, key="gti")
+    
+    st.markdown("**Performance Ratio**")
+    pr_ratio = st.slider("", 0.50, 1.00, 0.80, 0.01, key="pr")
+    
+    st.markdown("**Cost per kWh (ZAR)**")
+    cost_per_unit = st.number_input("", min_value=0.0, value=2.98, step=0.01, format="%.2f", key="cost")
+    
+    st.markdown("**Date Range**")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("**From**")
+        start_date = st.date_input("", datetime(2025, 5, 1), key="from")
+    with col2:
+        st.markdown("**To**")
+        end_date = st.date_input("", datetime(2025, 5, 31), key="to")
+    
+    st.markdown("---")
+    st.markdown("### Navigation")
+    page = st.radio("Go to", ["Solar", "Generator", "Factory", "Kehua", "Billing"], label_visibility="collapsed")
+
+# ------------------ DATA SOURCES ------------------
 TOTAL_CAPACITY_KW = 221.43
 TZ = 'Africa/Johannesburg'
-DEFAULT_COST_PER_KWH = 2.98
 
 SOLAR_URLS = [
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius-Jan.csv",
@@ -26,88 +118,6 @@ GEN_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/G
 FACTORY_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/FACTORY%20ELEC.csv"
 KEHUA_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/KEHUA%20INTERNAL.csv"
 BILLING_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/September%202025.xlsx"
-
-# ------------------ LIGHT, CLEAN, PROFESSIONAL UI ------------------
-st.set_page_config(page_title="Southern Paarl Energy", layout="wide", initial_sidebar_state="expanded")
-
-st.markdown("""
-<style>
-    /* Light background */
-    .stApp {background: #f8f9fb !important;}
-    [data-testid="stAppViewContainer"] > .main {background: #f8f9fb !important;}
-    [data-testid="stSidebar"] {background: white !important; border-right: 1px solid #e5e5e5 !important;}
-    
-    /* Clean cards */
-    .energy-card {
-        background: white;
-        border-radius: 16px;
-        padding: 20px;
-        margin: 16px 0;
-        box-shadow: 0 4px 16px rgba(0,0,0,0.08);
-        border: 1px solid #e8e8e8;
-    }
-    
-    /* Header */
-    .header-title {
-        font-size: 36px;
-        font-weight: 700;
-        background: linear-gradient(90deg, #007AFF, #00C853);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        text-align: center;
-        margin: 20px 0;
-    }
-    
-    /* Buttons */
-    .stButton > button {
-        background: #007AFF !important;
-        color: white !important;
-        border-radius: 12px !important;
-        height: 48px !important;
-        font-weight: 600 !important;
-        border: none !important;
-        width: 100% !important;
-    }
-    .stButton > button:hover {background: #0066CC !important;}
-    
-    /* Fix Plotly */
-    .js-plotly-plot .plotly {background: white !important;}
-</style>
-""", unsafe_allow_html=True)
-
-# ------------------ HEADER ------------------
-st.markdown("<h1 class='header-title'>Southern Paarl Energy</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align:center; color:#666; font-size:16px; margin-bottom:30px;'>Solar • Generator • Factory • Billing Dashboard</p>", unsafe_allow_html=True)
-
-# ------------------ SIDEBAR ------------------
-with st.sidebar:
-    st.markdown("<div style='text-align:center; padding:20px 0;'>", unsafe_allow_html=True)
-    st.markdown("<div style='width:64px; height:64px; background:linear-gradient(135deg,#007AFF,#00C853); border-radius:50%; margin:0 auto 12px; display:flex; align-items:center; justify-content:center; color:white; font-weight:bold; font-size:24px;'>HA</div>", unsafe_allow_html=True)
-    st.markdown("<div style='font-weight:700; font-size:20px'>Hussein Akim</div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-    
-    st.markdown("### Configuration")
-    st.markdown("**GTI Factor**")
-    gti_factor = st.slider("", 0.50, 1.50, 1.00, 0.01)
-    
-    st.markdown("**Performance Ratio**")
-    pr_ratio = st.slider("", 0.50, 1.00, 0.80, 0.01)
-    
-    st.markdown("**Cost per kWh (ZAR)**")
-    cost_per_unit = st.number_input("", min_value=0.0, value=2.98, step=0.01, format="%.2f")
-    
-    st.markdown("**Date Range**")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("**From**")
-        start_date = st.date_input("", datetime.today() - timedelta(days=30))
-    with col2:
-        st.markdown("**To**")
-        end_date = st.date_input("", datetime.today())
-    
-    st.markdown("---")
-    st.markdown("### Navigation")
-    page = st.radio("Go to", ["Solar", "Generator", "Factory", "Kehua", "Billing"], label_visibility="collapsed")
 
 # ------------------ DATA LOADING ------------------
 @st.cache_data(show_spinner=False)
@@ -166,17 +176,17 @@ filtered = merged[
 
 def plot(df, x, y, title, color):
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df[x], y=df[y], name=title, line=dict(color=color), mode='lines'))
+    fig.add_trace(go.Scatter(x=df[x], y=df[y], name=title, line=dict(color=color)))
     fig.update_layout(title=title, xaxis_rangeslider_visible=True, hovermode='x unified',
-                      template="simple_white", height=500, margin=dict(l=20,r=20,t=60,b=20))
+                      template="simple_white", height=500)
     return fig
 
 # ------------------ PAGES ------------------
 if page == "Solar":
     st.markdown("<div class='energy-card'>", unsafe_allow_html=True)
-    st.subheader("Solar Output & Expected")
+    st.subheader("Solar Output")
     if filtered.empty:
-        st.info("No data in selected range")
+        st.info("No data in selected range — try May 2025")
     else:
         fig = plot(filtered, 'last_changed', 'sum_grid_power', "Actual Power (kW)", "#00C853")
         if 'expected_power_kw' in filtered.columns:
@@ -187,7 +197,7 @@ if page == "Solar":
 
 elif page == "Generator":
     st.markdown("<div class='energy-card'>", unsafe_allow_html=True)
-    st.subheader("Generator")
+    st.subheader("Generator Performance")
     if 'sensor.generator_fuel_consumed' in filtered.columns:
         st.plotly_chart(plot(filtered, 'last_changed', 'sensor.generator_fuel_consumed', "Fuel (L)", "#DC2626"), use_container_width=True)
     if 'sensor.generator_runtime_duration' in filtered.columns:
@@ -196,7 +206,7 @@ elif page == "Generator":
 
 elif page == "Factory":
     st.markdown("<div class='energy-card'>", unsafe_allow_html=True)
-    st.subheader("Factory Daily kWh")
+    st.subheader("Daily Factory Consumption")
     if 'daily_factory_kwh' in filtered.columns:
         st.plotly_chart(plot(filtered, 'last_changed', 'daily_factory_kwh', "Daily kWh", "#0EA5E9"), use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
@@ -211,6 +221,7 @@ elif page == "Kehua":
 elif page == "Billing":
     st.markdown("<div class='energy-card'>", unsafe_allow_html=True)
     st.subheader("Billing Editor – September 2025")
+    
     try:
         resp = requests.get(BILLING_URL)
         wb = openpyxl.load_workbook(io.BytesIO(resp.content), data_only=False)
@@ -236,7 +247,7 @@ elif page == "Billing":
         c11 = st.number_input("Pomp, Willie (C11)", value=float(ws['C11'].value or 0))
         c12 = st.number_input("Werkers (C12)", value=float(ws['C12'].value or 0))
 
-        if st.button("Apply & Preview", type="primary"):
+        if st.button("Apply Changes & Preview", type="primary"):
             ws['A1'].value = from_date.strftime("%b'%y")
             ws['B2'].value = from_date.strftime("%d/%m/%y")
             ws['B3'].value = to_date.strftime("%d/%m/%y")
@@ -255,7 +266,7 @@ elif page == "Billing":
 
         if 'edited' in st.session_state:
             st.download_button(
-                "Download Edited Billing.xlsx",
+                "Download Edited September 2025.xlsx",
                 st.session_state.edited,
                 file_name=f"September 2025 - {from_date.strftime('%Y-%m-%d')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -264,4 +275,4 @@ elif page == "Billing":
 
 # ------------------ FOOTER ------------------
 st.markdown("---")
-st.markdown("<p style='text-align:center; color:#888; font-size:0.9rem;'>Built with love by Hussein Akim • Durr Bottling • December 2025</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center; color:#666; font-size:16px; margin:30px 0;'> • Durr Bottling • December 2025</p>", unsafe_allow_html=True)
