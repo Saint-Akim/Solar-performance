@@ -20,6 +20,7 @@
 # - Under Billing tab, added interactive editor for specified parameters: dates (B2, B3, auto B4), units (C7, C9), totals (E7, E9, G21), month (A1 auto from dates).
 # - Load template from URL, update cells with inputs, keep formulas intact for Excel recalc.
 # - Preview updated sheet as dataframe, download edited XLSX.
+# Fix: Moved progress_bar updates outside cached functions to avoid CacheReplayClosureError.
 
 import os
 import pandas as pd
@@ -108,7 +109,6 @@ st.info("Loading data from GitHub... Please wait.")
 
 @st.cache_data(show_spinner=False)
 def load_solar():
-    progress_bar.progress(20)
     dfs = []
     for url in SOLAR_URLS:
         try:
@@ -140,7 +140,6 @@ def load_solar():
 
 @st.cache_data(show_spinner=False)
 def load_weather(gti_factor_local, pr_ratio_local):
-    progress_bar.progress(40)
     try:
         df = pd.read_csv(WEATHER_URL)
         df['period_end'] = pd.to_datetime(df['period_end'], utc=True, errors='coerce')
@@ -157,7 +156,6 @@ def load_weather(gti_factor_local, pr_ratio_local):
 
 @st.cache_data(show_spinner=False)
 def load_generator():
-    progress_bar.progress(50)
     try:
         df = pd.read_csv(GEN_URL)
         if {'last_changed', 'state', 'entity_id'}.issubset(df.columns):
@@ -174,7 +172,6 @@ def load_generator():
 
 @st.cache_data(show_spinner=False)
 def load_factory():
-    progress_bar.progress(60)
     try:
         df = pd.read_csv(FACTORY_URL)
         if {'last_changed', 'state', 'entity_id'}.issubset(df.columns):
@@ -193,7 +190,6 @@ def load_factory():
 
 @st.cache_data(show_spinner=False)
 def load_kehua():
-    progress_bar.progress(70)
     try:
         df = pd.read_csv(KEHUA_URL)
         if {'last_changed', 'state', 'entity_id'}.issubset(df.columns):
@@ -210,7 +206,6 @@ def load_kehua():
 
 @st.cache_data(show_spinner=False)
 def load_billing():
-    progress_bar.progress(80)
     billing_data = {}
     for url in BILLING_URLS:
         try:
@@ -240,10 +235,15 @@ def load_billing():
     return billing_data
 
 solar_df = load_solar()
+progress_bar.progress(20)
 weather_df = load_weather(gti_factor, pr_ratio)
+progress_bar.progress(40)
 gen_df = load_generator()
+progress_bar.progress(50)
 factory_df = load_factory()
+progress_bar.progress(60)
 kehua_df = load_kehua()
+progress_bar.progress(70)
 billing_data = load_billing()
 progress_bar.progress(100)
 st.success("Data loaded successfully from GitHub!")
