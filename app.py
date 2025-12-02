@@ -369,6 +369,8 @@ with tab4:
     else:
         st.info("No Kehua data available.")
 
+# ────── Inside the Billing tab (replace the old editor block) ──────
+
 with tab5:
     st.subheader("Billing Overview")
     if billing_data:
@@ -388,63 +390,75 @@ with tab5:
         wb = openpyxl.load_workbook(io.BytesIO(response.content), data_only=False)
         ws = wb.active
         
-        # Inputs
+        # ────── User inputs ──────
         col1, col2 = st.columns(2)
         with col1:
             from_str = ws['B2'].value
-            from_date = st.date_input("Date From (B2)", value=datetime.strptime(from_str, '%d/%m/%y').date() if from_str else datetime.now().date())
+            from_date = st.date_input(
+                "Date From (B2)",
+                value=datetime.strptime(from_str, '%d/%m/%y').date() if from_str else datetime.now().date()
+            )
             to_str = ws['B3'].value
-            to_date = st.date_input("Date To (B3)", value=datetime.strptime(to_str, '%d/%m/%y').date() if to_str else datetime.now().date())
+            to_date = st.date_input(
+                "Date To (B3)",
+                value=datetime.strptime(to_str, '%d/%m/%y').date() if to_str else datetime.now().date()
+            )
             days = (to_date - from_date).days
-            st.number_input("No of Days (B4) - Auto", value=days, disabled=True)
-        
+            st.number_input("No of Days (B4) – Auto", value=days, disabled=True)
+
         with col2:
-            c7 = st.number_input("Freedom Village Units (C7)", value=ws['C7'].value or 0.0)
-            c9 = st.number_input("Boerdery Units (C9)", value=ws['C9'].value or 0.0)
-            e7 = st.number_input("Total Unit Cost Freedom (E7) - Override", value=ws['E7'].value or 0.0 if ws['E7'].data_type != 'f' else 0.0)
-            e9 = st.number_input("Total Unit Cost Boerdery (E9) - Override", value=ws['E9'].value or 0.0)
-            g21 = st.number_input("Drakenstein Account (G21)", value=ws['G21'].value or 0.0)
-        
-        # Boerdery subunits
+            c7 = st.number_input("Freedom Village Units (C7)", value=float(ws['C7'].value or 0))
+            c9 = st.number_input("Boerdery Units (C9)", value=float(ws['C9'].value or 0))
+            e9 = st.number_input("Total Unit Cost Boerdery (E9) – Override", value=float(ws['E9'].value or 0))
+            g21 = st.number_input("Drakenstein Account (G21)", value=float(ws['G21'].value or 0))
+
+        # Boerdery sub-units
         st.subheader("Boerdery Subunits")
-        c10 = st.number_input("Johan & Stoor Units (C10)", value=ws['C10'].value or 0.0)
-        c11 = st.number_input("Pomp, Willie, Gaste, Comp Units (C11)", value=ws['C11'].value or 0.0)
-        c12 = st.number_input("Werkers Units (C12)", value=ws['C12'].value or 0.0)
-        
-        # Auto A1 from from_date
+        c10 = st.number_input("Johan & Stoor Units (C10)", value=float(ws['C10'].value or 0))
+        c11 = st.number_input("Pomp, Willie, Gaste, Comp Units (C11)", value=float(ws['C11'].value or 0))
+        c12 = st.number_input("Werkers Units (C12)", value=float(ws['C12'].value or 0))
+
+        # Auto month title
         month_year = from_date.strftime("%b'%y")
-        st.text_input("Month (A1) - Auto", value=month_year, disabled=True)
-        
+        st.text_input("Month (A1) – Auto", value=month_year, disabled=True)
+
         if st.button("Update and Preview"):
-            # Update cells
+            # ────── Apply changes ──────
             ws['A1'].value = month_year
             ws['B2'].value = from_date.strftime('%d/%m/%y')
             ws['B3'].value = to_date.strftime('%d/%m/%y')
             ws['B4'].value = days
+
             ws['C7'].value = c7
             ws['C9'].value = c9
-            ws['E7'].value = e7  # Override formula if input
-            ws['E9'].value = e9
-            ws['G21'].value = g21
             ws['C10'].value = c10
             ws['C11'].value = c11
             ws['C12'].value = c12
-            
-            # Preview with pandas (data_only=True to show calculated if possible, but since no eval, show as is)
+
+            # Force E7 to be the formula =C7*D7
+            ws['E7'] = '=C7*D7'          # This writes the actual Excel formula
+            ws['E9'].value = e9          # keep manual override for Boerdery if desired
+            ws['G21'].value = g21
+
+            # ────── Preview ──────
             buffer = io.BytesIO()
             wb.save(buffer)
             buffer.seek(0)
             preview_df = pd.read_excel(buffer, header=None)
-            st.dataframe(preview_df)
-            
+            st.dataframe(preview_df, use_container_width=True)
+
             buffer.seek(0)
             st.session_state['edited_buffer'] = buffer.getvalue()
-    
-        if 'edited_buffer' in st.session_state:
-            st.download_button("Download Edited XLSX", st.session_state['edited_buffer'], file_name="edited_September 2025.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    else:
-        st.info("No billing templates available.")
 
+        if 'edited_buffer' in st.session_state:
+            st.download_button(
+                "Download Edited XLSX",
+                st.session_state['edited_buffer'],
+                file_name="edited_September 2025.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+    else:
+        st.info("No templates available.")
 # ---- Export ----
 st.download_button("📄 Download Merged CSV", filtered.to_csv(index=False), file_name="merged_data.csv", key="download_merged")
 
