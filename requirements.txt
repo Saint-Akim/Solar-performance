@@ -11,3 +11,4 @@ scipy
 numpy
 psutil
 openpyxl
+requests
