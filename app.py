@@ -1,5 +1,5 @@
-# app.py — Southern Paarl Energy Dashboard (Apple Sequoia Design)
-# Full production version • December 2025
+# app.py — Southern Paarl Energy Dashboard (Apple Sequoia Light)
+# Final version • December 2025
 
 import streamlit as st
 import pandas as pd
@@ -9,50 +9,53 @@ import io
 import openpyxl
 from datetime import datetime, timedelta
 
-# ------------------ APPLE SEQUOIA UI ------------------
-st.set_page_config(page_title="Durr Bottling Energy", layout="wide", initial_sidebar_state="expanded")
-SEQUOIA_CSS = """
+# ------------------ PAGE CONFIG ------------------
+st.set_page_config(page_title="Southern Paarl Energy", layout="wide", initial_sidebar_state="expanded")
+
+# ------------------ CLEAN APPLE SEQUOIA LIGHT THEME ------------------
+st.markdown("""
 <style>
-:root{
-  --bg:#F6F7F8;
-  --card:#FFFFFF;
-  --muted:#6B7280;
-  --accent-1: linear-gradient(135deg, rgba(14,63,45,0.06), rgba(183,145,96,0.03));
-  --accent-2: linear-gradient(180deg, #F8FBF9 0%, #FFFFFF 100%);
-  --glass: rgba(255,255,255,0.6);
-  --radius: 18px;
-}
-[data-testid="stAppViewContainer"] > .main {
-  background: radial-gradient(1200px 600px at 10% 10%, rgba(34,77,55,0.04), transparent 10%),
-              radial-gradient(1000px 400px at 90% 90%, rgba(189,120,70,0.03), transparent 12%),
-              var(--bg);
-}
-.sequoia-header{
-  display:flex;align-items:center;gap:18px;padding:28px 24px;border-radius:20px;
-  background: var(--accent-1);
-  box-shadow: 0 6px 18px rgba(12,33,20,0.06);
-  margin-bottom:24px;
-}
-.sequoia-title{font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif; font-weight:700; font-size:32px; background: linear-gradient(90deg, #007aff, #00c853); -webkit-background-clip: text; -webkit-text-fill-color: transparent;}
-.sequoia-subtitle{color:#6B7280; font-size:15px; margin-top:6px}
-.sequoia-card{
-  background: linear-gradient(180deg, rgba(255,255,255,0.9), rgba(255,255,255,0.76));
-  border-radius: var(--radius);
-  padding:20px; border:1px solid rgba(12,33,20,0.04);
-  box-shadow: 0 6px 20px rgba(12,33,20,0.04);
-  margin-bottom:16px;
-}
-.metric-wrap{display:flex;gap:16px;align-items:center}
-.metric-label{color:var(--muted);font-size:14px;font-weight:500}
-.metric-value{font-weight:700;font-size:28px;color:#1d1d1f}
-[data-testid="stSidebar"] {background: white; border-right: 1px solid #e0e0e0;}
-.sidebar-profile{display:flex;align-items:center;gap:14px;margin-bottom:16px}
-.profile-pill{background:linear-gradient(90deg,#0d3b66,#2a6f97);width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:18px}
-.sequoia-btn{background:linear-gradient(90deg,#007aff,#0066cc);color:white;padding:12px 20px;border-radius:12px;border:none;font-weight:600}
-.stButton>button:hover{background:#0051a8 !important}
+    :root{
+      --bg:#F8F9FA;
+      --card:#FFFFFF;
+      --text:#1d1d1f;
+      --muted:#6B7280;
+      --accent:#007AFF;
+      --radius:18px;
+    }
+    [data-testid="stAppViewContainer"] > .main {background: var(--bg);}
+    [data-testid="stSidebar"] {background: white; border-right: 1px solid #e5e5e5;}
+    
+    .sequoia-header{
+      padding: 28px 24px; border-radius: 20px; margin-bottom: 24px;
+      background: linear-gradient(135deg, rgba(0,122,255,0.06), rgba(0,200,83,0.04));
+      box-shadow: 0 8px 25px rgba(0,0,0,0.06);
+    }
+    .sequoia-title{
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+      font-weight: 700; font-size: 34px; margin: 0;
+      background: linear-gradient(90deg, #007AFF, #00C853);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .sequoia-subtitle{color: var(--muted); font-size: 15px; margin-top: 6px;}
+    
+    .sequoia-card{
+      background: var(--card); border-radius: var(--radius); padding: 22px;
+      border: 1px solid rgba(0,0,0,0.06); box-shadow: 0 6px 20px rgba(0,0,0,0.04);
+      margin-bottom: 16px;
+    }
+    .profile-pill{
+      background: linear-gradient(135deg, #007AFF, #00C853); color: white;
+      width: 52px; height: 52px; border-radius: 14px; display: flex;
+      align-items: center; justify-content: center; font-weight: 700; font-size: 18px;
+    }
+    .stButton > button{
+      background: #007AFF; color: white; border-radius: 12px; height: 48px;
+      font-weight: 600; border: none; width: 100%;
+    }
+    .stButton > button:hover{background: #0066CC !important;}
 </style>
-"""
-st.markdown(SEQUOIA_CSS, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 # ------------------ HEADER ------------------
 st.markdown(f"""
@@ -64,11 +67,14 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ------------------ SIDEBAR — EXACTLY AS YOU WANTED ------------------
+# ------------------ SIDEBAR — CLEAN & MINIMAL ------------------
 with st.sidebar:
     st.markdown("<div class='sequoia-card'>", unsafe_allow_html=True)
-    st.markdown("<div class='sidebar-profile'><div class='profile-pill'>HA</div><div><div style='font-weight:700'>Hussein Akim</div><div style='font-size:13px;color:#6B7280'>Electrical Engineer</div></div></div>", unsafe_allow_html=True)
-    st.markdown("<hr style='margin:16px 0;border-color:rgba(0,0,0,0.08)'/>", unsafe_allow_html=True)
+    st.markdown("<div style='display:flex; align-items:center; gap:14px; margin-bottom:16px'>", unsafe_allow_html=True)
+    st.markdown("<div class='profile-pill'>HA</div>", unsafe_allow_html=True)
+    st.markdown("<div><div style='font-weight:700; font-size:18px'>Hussein Akim</div></div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("<hr style='margin:16px 0; border-color:rgba(0,0,0,0.08)'/>", unsafe_allow_html=True)
     
     st.markdown("### Configuration")
     st.markdown("**GTI Factor**")
@@ -81,11 +87,11 @@ with st.sidebar:
     cost_per_unit = st.number_input("", min_value=0.0, value=2.98, step=0.01, format="%.2f", key="cost")
     
     st.markdown("**Date Range**")
-    col_from, col_to = st.columns(2)
-    with col_from:
+    col1, col2 = st.columns(2)
+    with col1:
         st.markdown("**From**")
         start_date = st.date_input("", datetime.today() - timedelta(days=30), key="from")
-    with col_to:
+    with col2:
         st.markdown("**To**")
         end_date = st.date_input("", datetime.today(), key="to")
     
@@ -95,10 +101,9 @@ with st.sidebar:
         "Solar Performance", "Generator", "Factory", "Kehua", "Billing"
     ], label_visibility="collapsed")
     
-    st.markdown("<div class='sequoia-note'>Theme: Apple Sequoia • v2.0</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ------------------ DATA SOURCES & LOADING ------------------
+# ------------------ DATA LOADING ------------------
 TOTAL_CAPACITY_KW = 221.43
 TZ = 'Africa/Johannesburg'
 
@@ -170,9 +175,9 @@ filtered = merged[(merged['last_changed'] >= pd.to_datetime(start_date)) &
 
 def chart(df, x, y, title, color):
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df[x], y=df[y], name=title, line=dict(color=color), fill='tozeroy' if 'daily' in y else None))
+    fig.add_trace(go.Scatter(x=df[x], y=df[y], name=title, line=dict(color=color)))
     fig.update_layout(title=title, xaxis_rangeslider_visible=True, hovermode='x unified',
-                      template="simple_white", margin=dict(l=20,r=20,t=60,b=20), height=500)
+                      template="simple_white", height=520)
     return fig
 
 # ------------------ PAGE CONTENT ------------------
@@ -263,4 +268,4 @@ elif page == "Billing":
 
 # ------------------ FOOTER ------------------
 st.markdown("---")
-st.markdown("<p style='text-align:center; color:#888; font-size:0.9rem;'>Built  by Hussein  • Durr Bottling • December 2025</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center; color:#888; font-size:0.9rem;'>Built with ❤️ by Hussein Akim • Southern Paarl • December 2025</p>", unsafe_allow_html=True)
