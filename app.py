@@ -21,6 +21,7 @@
 # - Load template from URL, update cells with inputs, keep formulas intact for Excel recalc.
 # - Preview updated sheet as dataframe, download edited XLSX.
 # Fix: Moved progress_bar updates outside cached functions to avoid CacheReplayClosureError.
+# New: Added edits for C10, C11, C12 (Boerdery subunits).
 
 import os
 import pandas as pd
@@ -404,6 +405,12 @@ with tab5:
             e9 = st.number_input("Total Unit Cost Boerdery (E9) - Override", value=ws['E9'].value or 0.0)
             g21 = st.number_input("Drakenstein Account (G21)", value=ws['G21'].value or 0.0)
         
+        # Boerdery subunits
+        st.subheader("Boerdery Subunits")
+        c10 = st.number_input("Johan & Stoor Units (C10)", value=ws['C10'].value or 0.0)
+        c11 = st.number_input("Pomp, Willie, Gaste, Comp Units (C11)", value=ws['C11'].value or 0.0)
+        c12 = st.number_input("Werkers Units (C12)", value=ws['C12'].value or 0.0)
+        
         # Auto A1 from from_date
         month_year = from_date.strftime("%b'%y")
         st.text_input("Month (A1) - Auto", value=month_year, disabled=True)
@@ -419,6 +426,9 @@ with tab5:
             ws['E7'].value = e7  # Override formula if input
             ws['E9'].value = e9
             ws['G21'].value = g21
+            ws['C10'].value = c10
+            ws['C11'].value = c11
+            ws['C12'].value = c12
             
             # Preview with pandas (data_only=True to show calculated if possible, but since no eval, show as is)
             buffer = io.BytesIO()
