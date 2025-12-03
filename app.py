@@ -1,14 +1,3 @@
-Here is the **Complete Final Code** with the **Sidebar Fixed**.
-
-I have added specific CSS rules to ensure the **Sidebar** behaves exactly like the main page:
-
-1.  **Light Mode:** Sidebar is **White** with **Pitch Black** text.
-2.  **Dark Mode:** Sidebar is **Dark Grey** with **White** text.
-3.  **Inputs:** Sidebar inputs (Sliders, Date Pickers) are now high-contrast and clearly visible in both modes.
-
-### `app.py` (Copy and Paste)
-
-```python
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -420,4 +409,3 @@ with tab5:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
     st.markdown("</div>", unsafe_allow_html=True)
-```
