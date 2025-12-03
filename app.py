@@ -14,7 +14,7 @@ st.set_page_config(
     page_title="Southern Paarl Energy",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="collapsed" # Cleaner look
+    initial_sidebar_state="collapsed"
 )
 
 # Initialize Session State for Theme
@@ -24,12 +24,12 @@ if 'theme' not in st.session_state:
 # -----------------------------------------------------------------------------
 # 2. UI DESIGN SYSTEM (CSS + THEME LOGIC)
 # -----------------------------------------------------------------------------
-# Define Theme Colors (Logic from Code 1)
+# Define Theme Colors
 if st.session_state.theme == 'dark':
     theme = {
         "bg": "#0e1117",
         "card": "#1e212b",
-        "text": "#ffffff",
+        "text": "#ffffff",          # White text for Dark Mode
         "subtext": "#a0a0a0",
         "border": "1px solid rgba(255, 255, 255, 0.1)",
         "chart": "plotly_dark",
@@ -38,14 +38,14 @@ if st.session_state.theme == 'dark':
     }
 else:
     theme = {
-        "bg": "#f8f9fb",
+        "bg": "#f0f2f6",            # Light Grey Background
         "card": "#ffffff",
-        "text": "#1d1d1f",
-        "subtext": "#86868b",
-        "border": "1px solid rgba(0, 0, 0, 0.08)",
+        "text": "#000000",          # PURE BLACK text for Light Mode
+        "subtext": "#333333",       # Dark Grey subtext
+        "border": "1px solid rgba(0, 0, 0, 0.1)",
         "chart": "plotly_white",
         "accent": "#007AFF",
-        "input_bg": "rgba(0, 0, 0, 0.03)"
+        "input_bg": "#e0e3e7"       # Distinct input background
     }
 
 st.markdown(f"""
@@ -53,10 +53,11 @@ st.markdown(f"""
     /* IMPORT FONT */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
 
-    /* GLOBAL APP BACKGROUND */
+    /* GLOBAL APP BACKGROUND & TEXT */
     .stApp {{
         background-color: {theme['bg']};
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        color: {theme['text']} !important;
     }}
 
     /* HIDE STREAMLIT CHROME */
@@ -81,26 +82,33 @@ st.markdown(f"""
     /* METRIC TYPOGRAPHY */
     .metric-label {{
         font-size: 13px;
-        font-weight: 600;
+        font-weight: 700;
         text-transform: uppercase;
         color: {theme['subtext']};
         letter-spacing: 0.5px;
     }}
     .metric-value {{
         font-size: 32px;
-        font-weight: 700;
+        font-weight: 800;
         color: {theme['text']};
         margin-top: 5px;
     }}
 
-    /* INPUTS FIX (Crucial for visibility) */
-    .stDateInput input, .stNumberInput input, .stTextInput input, .stSelectbox div {{
+    /* INPUTS VISIBILITY FIX (CRITICAL) */
+    .stDateInput input, .stNumberInput input, .stTextInput input, .stSelectbox div, .stSelectbox span {{
         color: {theme['text']} !important;
         background-color: {theme['input_bg']} !important;
-        border: {theme['border']} !important;
         border-radius: 8px !important;
+        border: {theme['border']} !important;
+        caret-color: {theme['text']} !important;
+        -webkit-text-fill-color: {theme['text']} !important; /* Forces color in Chrome/Safari */
     }}
     
+    /* Ensure Labels are Visible */
+    label, .stMarkdown p {{
+        color: {theme['text']} !important;
+    }}
+
     /* TABS STYLING */
     .stTabs [data-baseweb="tab-list"] {{
         gap: 10px;
@@ -111,16 +119,16 @@ st.markdown(f"""
         border-radius: 10px;
         background-color: {theme['input_bg']};
         border: none;
-        color: {theme['subtext']};
+        color: {theme['text']};
         font-weight: 600;
     }}
     .stTabs [data-baseweb="tab"][aria-selected="true"] {{
         background-color: {theme['accent']};
-        color: white;
+        color: white !important;
     }}
 
     /* HEADERS */
-    h1, h2, h3, p {{ color: {theme['text']} !important; }}
+    h1, h2, h3, h4, h5, h6 {{ color: {theme['text']} !important; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -146,7 +154,6 @@ BILLING_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/ma
 def fetch_url(url):
     try:
         df = pd.read_csv(url)
-        # Apply strict data cleaning from Code 1
         if {'last_changed', 'state', 'entity_id'}.issubset(df.columns):
             df['last_changed'] = pd.to_datetime(df['last_changed'], utc=True).dt.tz_convert(TZ).dt.tz_localize(None)
             df['state'] = pd.to_numeric(df['state'], errors='coerce').abs()
@@ -163,7 +170,6 @@ def load_data_parallel():
         fac_fut = executor.submit(fetch_url, FACTORY_URL)
         keh_fut = executor.submit(fetch_url, KEHUA_URL)
         
-        # Weather data is small, load directly
         try:
             w_df = pd.read_csv(WEATHER_URL)
             w_df['period_end'] = pd.to_datetime(w_df['period_end'], utc=True).dt.tz_convert(TZ).dt.tz_localize(None)
@@ -179,13 +185,13 @@ with st.spinner("Syncing Energy Systems..."):
     solar_df, gen_df, factory_df, kehua_df, weather_df = load_data_parallel()
 
 # -----------------------------------------------------------------------------
-# 4. SIDEBAR & SETTINGS (Preserved from Code 1)
+# 4. SIDEBAR & SETTINGS
 # -----------------------------------------------------------------------------
 with st.sidebar:
     st.markdown(f"""
     <div style="text-align:center; padding: 20px 0;">
         <div style="width:60px; height:60px; background: linear-gradient(135deg, #007AFF, #00C853); border-radius: 50%; margin: 0 auto; display:flex; align-items:center; justify-content:center; color:white; font-weight:bold; font-size:20px;">HA</div>
-        <h3 style="margin-top:10px; font-size:18px;">Hussein Akim</h3>
+        <h3 style="margin-top:10px; font-size:18px; color:{theme['text']} !important;">Hussein Akim</h3>
         <p style="color:{theme['subtext']}; font-size:12px;">Durr Bottling</p>
     </div>
     """, unsafe_allow_html=True)
@@ -213,12 +219,11 @@ with st.sidebar:
     start_date = st.date_input("From", datetime(2025, 5, 1))
     end_date = st.date_input("To", datetime(2025, 5, 31))
 
-    # Process Weather with sliders
     if not weather_df.empty:
         weather_df['expected_power_kw'] = weather_df['gti'] * gti_factor * TOTAL_CAPACITY_KW * pr_ratio / 1000
 
 # -----------------------------------------------------------------------------
-# 5. DATA LOGIC & MERGING (Preserved from Code 1)
+# 5. DATA LOGIC
 # -----------------------------------------------------------------------------
 if not factory_df.empty and 'sensor.bottling_factory_monthkwhtotal' in factory_df.columns:
     factory_df = factory_df.sort_values('last_changed')
@@ -246,12 +251,12 @@ if not merged.empty:
     filtered = merged.loc[mask].copy()
 
 # -----------------------------------------------------------------------------
-# 6. DASHBOARD LAYOUT (UI from Code 2 + Logic from Code 1)
+# 6. DASHBOARD LAYOUT
 # -----------------------------------------------------------------------------
 st.title("Southern Paarl Energy")
 st.markdown(f"<p style='color:{theme['subtext']}; margin-top:-15px'>Dashboard & Analytics System</p>", unsafe_allow_html=True)
 
-# TOP KPI ROW (High-End UI)
+# TOP KPI ROW
 if not filtered.empty:
     avg_val = filtered['sum_grid_power'].mean() if 'sum_grid_power' in filtered else 0
     max_val = filtered['sum_grid_power'].max() if 'sum_grid_power' in filtered else 0
@@ -273,7 +278,7 @@ if not filtered.empty:
 
 st.markdown("---")
 
-# CHART FUNCTION (Preserved features from Code 1)
+# CHART FUNCTION
 def plot_chart(df, x, y, title, color):
     if df.empty or y not in df.columns:
         fig = go.Figure()
@@ -292,7 +297,9 @@ def plot_chart(df, x, y, title, color):
         height=420,
         margin=dict(l=40, r=40, t=50, b=40),
         hovermode='x unified',
-        title=dict(text=title, font=dict(color=theme['text'], size=18))
+        title=dict(text=title, font=dict(color=theme['text'], size=18)),
+        xaxis=dict(color=theme['text']),
+        yaxis=dict(color=theme['text'])
     )
     return fig
 
@@ -331,7 +338,6 @@ with tab5:
     st.markdown("<div class='energy-card'>", unsafe_allow_html=True)
     st.subheader("Billing Editor")
     
-    # EXACT BILLING LOGIC PRESERVED FROM CODE 1
     try:
         resp = requests.get(BILLING_URL)
         wb = openpyxl.load_workbook(io.BytesIO(resp.content), data_only=False)
