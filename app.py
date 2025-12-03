@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 import requests
 import io
 import openpyxl
+import concurrent.futures
 from datetime import datetime, timedelta
 
 # -----------------------------------------------------------------------------
@@ -13,7 +14,7 @@ st.set_page_config(
     page_title="Southern Paarl Energy",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed" # Cleaner look
 )
 
 # Initialize Session State for Theme
@@ -21,9 +22,9 @@ if 'theme' not in st.session_state:
     st.session_state.theme = 'light'
 
 # -----------------------------------------------------------------------------
-# 2. UI DESIGN SYSTEM (CSS)
+# 2. UI DESIGN SYSTEM (CSS + THEME LOGIC)
 # -----------------------------------------------------------------------------
-# Define Theme Colors
+# Define Theme Colors (Logic from Code 1)
 if st.session_state.theme == 'dark':
     theme = {
         "bg": "#0e1117",
@@ -32,7 +33,8 @@ if st.session_state.theme == 'dark':
         "subtext": "#a0a0a0",
         "border": "1px solid rgba(255, 255, 255, 0.1)",
         "chart": "plotly_dark",
-        "accent": "#00C853"
+        "accent": "#00C853",
+        "input_bg": "rgba(255, 255, 255, 0.05)"
     }
 else:
     theme = {
@@ -42,33 +44,41 @@ else:
         "subtext": "#86868b",
         "border": "1px solid rgba(0, 0, 0, 0.08)",
         "chart": "plotly_white",
-        "accent": "#007AFF"
+        "accent": "#007AFF",
+        "input_bg": "rgba(0, 0, 0, 0.03)"
     }
 
 st.markdown(f"""
 <style>
-    /* Global App Background */
+    /* IMPORT FONT */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+    /* GLOBAL APP BACKGROUND */
     .stApp {{
         background-color: {theme['bg']};
-        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     }}
-    
-    /* Inputs Fix (Readable text in both modes) */
-    .stDateInput input, .stNumberInput input, .stTextInput input, .stSelectbox div {{
-        color: {theme['text']} !important;
-    }}
-    
-    /* Card Design */
-    .energy-card {{
+
+    /* HIDE STREAMLIT CHROME */
+    #MainMenu {{visibility: hidden;}}
+    footer {{visibility: hidden;}}
+
+    /* CARD DESIGN (Glassmorphism) */
+    .energy-card, .metric-card {{
         background-color: {theme['card']};
         border-radius: 16px;
         padding: 24px;
         box-shadow: 0 4px 20px rgba(0,0,0,0.05);
         border: {theme['border']};
         margin-bottom: 20px;
+        transition: transform 0.2s;
     }}
-    
-    /* Metric Typography */
+    .metric-card:hover {{
+        transform: translateY(-2px);
+        box-shadow: 0 8px 30px rgba(0,0,0,0.1);
+    }}
+
+    /* METRIC TYPOGRAPHY */
     .metric-label {{
         font-size: 13px;
         font-weight: 600;
@@ -77,23 +87,99 @@ st.markdown(f"""
         letter-spacing: 0.5px;
     }}
     .metric-value {{
-        font-size: 28px;
+        font-size: 32px;
         font-weight: 700;
         color: {theme['text']};
         margin-top: 5px;
     }}
+
+    /* INPUTS FIX (Crucial for visibility) */
+    .stDateInput input, .stNumberInput input, .stTextInput input, .stSelectbox div {{
+        color: {theme['text']} !important;
+        background-color: {theme['input_bg']} !important;
+        border: {theme['border']} !important;
+        border-radius: 8px !important;
+    }}
     
-    /* Headers */
-    h1, h2, h3 {{ color: {theme['text']} !important; }}
-    
-    /* Remove Streamlit Bloat */
-    #MainMenu {{visibility: hidden;}}
-    footer {{visibility: hidden;}}
+    /* TABS STYLING */
+    .stTabs [data-baseweb="tab-list"] {{
+        gap: 10px;
+        background-color: transparent;
+    }}
+    .stTabs [data-baseweb="tab"] {{
+        height: 45px;
+        border-radius: 10px;
+        background-color: {theme['input_bg']};
+        border: none;
+        color: {theme['subtext']};
+        font-weight: 600;
+    }}
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {{
+        background-color: {theme['accent']};
+        color: white;
+    }}
+
+    /* HEADERS */
+    h1, h2, h3, p {{ color: {theme['text']} !important; }}
 </style>
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 3. SIDEBAR
+# 3. FAST DATA LOADING (PARALLEL PROCESSING)
+# -----------------------------------------------------------------------------
+TOTAL_CAPACITY_KW = 221.43
+TZ = 'Africa/Johannesburg'
+
+SOLAR_URLS = [
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius-Jan.csv",
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goodwe%26Fronius_Feb.csv",
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goddwe%26Fronius_March.csv",
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe%26Fronius_April.csv",
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe%26Fronius_may.csv"
+]
+WEATHER_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/csv_-33.78116654125097_19.00166906876145_horizontal_single_axis_23_30_PT60M.csv"
+GEN_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/GEN.csv"
+FACTORY_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/FACTORY%20ELEC.csv"
+KEHUA_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/KEHUA%20INTERNAL.csv"
+BILLING_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/September%202025.xlsx"
+
+def fetch_url(url):
+    try:
+        df = pd.read_csv(url)
+        # Apply strict data cleaning from Code 1
+        if {'last_changed', 'state', 'entity_id'}.issubset(df.columns):
+            df['last_changed'] = pd.to_datetime(df['last_changed'], utc=True).dt.tz_convert(TZ).dt.tz_localize(None)
+            df['state'] = pd.to_numeric(df['state'], errors='coerce').abs()
+            df['entity_id'] = df['entity_id'].str.lower().str.strip()
+            return df.pivot_table(index='last_changed', columns='entity_id', values='state', aggfunc='mean').reset_index()
+        return df
+    except: return pd.DataFrame()
+
+@st.cache_data(show_spinner=False)
+def load_data_parallel():
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        s_futures = [executor.submit(fetch_url, u) for u in SOLAR_URLS]
+        gen_fut = executor.submit(fetch_url, GEN_URL)
+        fac_fut = executor.submit(fetch_url, FACTORY_URL)
+        keh_fut = executor.submit(fetch_url, KEHUA_URL)
+        
+        # Weather data is small, load directly
+        try:
+            w_df = pd.read_csv(WEATHER_URL)
+            w_df['period_end'] = pd.to_datetime(w_df['period_end'], utc=True).dt.tz_convert(TZ).dt.tz_localize(None)
+        except: w_df = pd.DataFrame()
+        
+        s_dfs = [f.result() for f in s_futures if not f.result().empty]
+        solar = pd.concat(s_dfs, ignore_index=True) if s_dfs else pd.DataFrame()
+        
+        return solar, gen_fut.result(), fac_fut.result(), keh_fut.result(), w_df
+
+# Execute Load
+with st.spinner("Syncing Energy Systems..."):
+    solar_df, gen_df, factory_df, kehua_df, weather_df = load_data_parallel()
+
+# -----------------------------------------------------------------------------
+# 4. SIDEBAR & SETTINGS (Preserved from Code 1)
 # -----------------------------------------------------------------------------
 with st.sidebar:
     st.markdown(f"""
@@ -127,63 +213,17 @@ with st.sidebar:
     start_date = st.date_input("From", datetime(2025, 5, 1))
     end_date = st.date_input("To", datetime(2025, 5, 31))
 
+    # Process Weather with sliders
+    if not weather_df.empty:
+        weather_df['expected_power_kw'] = weather_df['gti'] * gti_factor * TOTAL_CAPACITY_KW * pr_ratio / 1000
+
 # -----------------------------------------------------------------------------
-# 4. DATA LOGIC (STRICTLY PRESERVED)
+# 5. DATA LOGIC & MERGING (Preserved from Code 1)
 # -----------------------------------------------------------------------------
-TOTAL_CAPACITY_KW = 221.43
-TZ = 'Africa/Johannesburg'
-
-SOLAR_URLS = [
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius-Jan.csv",
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goodwe%26Fronius_Feb.csv",
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goddwe%26Fronius_March.csv",
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe%26Fronius_April.csv",
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe%26Fronius_may.csv"
-]
-WEATHER_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/csv_-33.78116654125097_19.00166906876145_horizontal_single_axis_23_30_PT60M.csv"
-GEN_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/GEN.csv"
-FACTORY_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/FACTORY%20ELEC.csv"
-KEHUA_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/KEHUA%20INTERNAL.csv"
-BILLING_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/September%202025.xlsx"
-
-@st.cache_data(show_spinner="Loading data...")
-def load_csvs(urls):
-    dfs = []
-    for url in urls:
-        try:
-            df = pd.read_csv(url)
-            if {'last_changed', 'state', 'entity_id'}.issubset(df.columns):
-                df['last_changed'] = pd.to_datetime(df['last_changed'], utc=True).dt.tz_convert(TZ).dt.tz_localize(None)
-                df['state'] = pd.to_numeric(df['state'], errors='coerce').abs()
-                df['entity_id'] = df['entity_id'].str.lower().str.strip()
-                piv = df.pivot_table(index='last_changed', columns='entity_id', values='state', aggfunc='mean').reset_index()
-                dfs.append(piv)
-        except Exception as e: print(f"Error loading {url}: {e}")
-    return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
-
-@st.cache_data(show_spinner="Loading weather data...")
-def load_weather(gti, pr):
-    try:
-        df = pd.read_csv(WEATHER_URL)
-        df['period_end'] = pd.to_datetime(df['period_end'], utc=True).dt.tz_convert(TZ).dt.tz_localize(None)
-        df['expected_power_kw'] = df['gti'] * gti * TOTAL_CAPACITY_KW * pr / 1000
-        return df
-    except Exception as e: print(f"Error loading weather: {e}")
-    return pd.DataFrame()
-
-# Execute Load
-solar_df = load_csvs(SOLAR_URLS)
-weather_df = load_weather(gti_factor, pr_ratio)
-gen_df = load_csvs([GEN_URL])
-factory_df = load_csvs([FACTORY_URL])
-kehua_df = load_csvs([KEHUA_URL])
-
-# Factory Diff Logic
 if not factory_df.empty and 'sensor.bottling_factory_monthkwhtotal' in factory_df.columns:
     factory_df = factory_df.sort_values('last_changed')
     factory_df['daily_factory_kwh'] = factory_df['sensor.bottling_factory_monthkwhtotal'].diff().fillna(0)
 
-# Merge Logic (As requested)
 all_dfs = [df for df in [solar_df, gen_df, factory_df, kehua_df, weather_df] if not df.empty]
 if all_dfs:
     merged = all_dfs[0].copy()
@@ -194,7 +234,6 @@ if all_dfs:
 else:
     merged = pd.DataFrame()
 
-# Calculation Logic
 if not merged.empty:
     if 'sensor.fronius_grid_power' in merged.columns: merged['sensor.fronius_grid_power'] /= 1000
     if 'sensor.goodwe_grid_power' in merged.columns: merged['sensor.goodwe_grid_power'] /= 1000
@@ -207,22 +246,45 @@ if not merged.empty:
     filtered = merged.loc[mask].copy()
 
 # -----------------------------------------------------------------------------
-# 5. UI COMPONENTS & CHARTS
+# 6. DASHBOARD LAYOUT (UI from Code 2 + Logic from Code 1)
 # -----------------------------------------------------------------------------
+st.title("Southern Paarl Energy")
+st.markdown(f"<p style='color:{theme['subtext']}; margin-top:-15px'>Dashboard & Analytics System</p>", unsafe_allow_html=True)
+
+# TOP KPI ROW (High-End UI)
+if not filtered.empty:
+    avg_val = filtered['sum_grid_power'].mean() if 'sum_grid_power' in filtered else 0
+    max_val = filtered['sum_grid_power'].max() if 'sum_grid_power' in filtered else 0
+    savings = (filtered['sum_grid_power'].sum() / 60) * cost_per_unit if 'sum_grid_power' in filtered else 0
+    factory_load = filtered['daily_factory_kwh'].sum() if 'daily_factory_kwh' in filtered else 0
+    
+    k1, k2, k3, k4 = st.columns(4)
+    def kpi(col, label, val):
+        col.markdown(f"""
+        <div class='metric-card'>
+            <div class='metric-label'>{label}</div>
+            <div class='metric-value'>{val}</div>
+        </div>""", unsafe_allow_html=True)
+        
+    kpi(k1, "Avg Solar", f"{avg_val:.1f} kW")
+    kpi(k2, "Peak Solar", f"{max_val:.1f} kW")
+    kpi(k3, "Est. Savings", f"R {savings:,.0f}")
+    kpi(k4, "Factory Load", f"{factory_load:,.0f} kWh")
+
+st.markdown("---")
+
+# CHART FUNCTION (Preserved features from Code 1)
 def plot_chart(df, x, y, title, color):
-    # Dynamic Plotly Template
     if df.empty or y not in df.columns:
         fig = go.Figure()
         fig.add_annotation(text="No Data", showarrow=False, font=dict(color=theme['text']))
     else:
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=df[x], y=df[y], name=title, line=dict(color=color, width=2.5)))
-        
-        # Original Logic: Expected Power Line
+        # Expected Power Logic
         if 'expected_power_kw' in df.columns and "Actual" in title:
             fig.add_trace(go.Scatter(x=df[x], y=df['expected_power_kw'], name="Expected", 
                                      line=dict(color="gray", width=2, dash="dot")))
-    
     fig.update_layout(
         template=theme['chart'],
         paper_bgcolor='rgba(0,0,0,0)',
@@ -234,30 +296,13 @@ def plot_chart(df, x, y, title, color):
     )
     return fig
 
-# -----------------------------------------------------------------------------
-# 6. MAIN LAYOUT
-# -----------------------------------------------------------------------------
-st.title("Southern Paarl Energy")
-st.markdown(f"<p style='color:{theme['subtext']}; margin-top:-15px'>Dashboard & Analytics System</p>", unsafe_allow_html=True)
-
 # TABS NAVIGATION
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["Solar", "Generator", "Factory", "Kehua", "Billing"])
 
 with tab1:
-    if not filtered.empty:
-        # KPI ROW
-        avg_val = filtered['sum_grid_power'].mean()
-        max_val = filtered['sum_grid_power'].max()
-        savings = (filtered['sum_grid_power'].sum() / 60) * cost_per_unit
-        
-        c1, c2, c3 = st.columns(3)
-        with c1: st.markdown(f"<div class='energy-card'><div class='metric-label'>Avg Output</div><div class='metric-value'>{avg_val:.2f} kW</div></div>", unsafe_allow_html=True)
-        with c2: st.markdown(f"<div class='energy-card'><div class='metric-label'>Peak Output</div><div class='metric-value'>{max_val:.2f} kW</div></div>", unsafe_allow_html=True)
-        with c3: st.markdown(f"<div class='energy-card'><div class='metric-label'>Est. Savings</div><div class='metric-value'>R {savings:,.2f}</div></div>", unsafe_allow_html=True)
-        
-        st.markdown("<div class='energy-card'>", unsafe_allow_html=True)
-        st.plotly_chart(plot_chart(filtered, 'last_changed', 'sum_grid_power', "Actual Power (kW)", "#00C853"), use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("<div class='energy-card'>", unsafe_allow_html=True)
+    st.plotly_chart(plot_chart(filtered, 'last_changed', 'sum_grid_power', "Actual Power (kW)", "#00C853"), use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 with tab2:
     st.markdown("<div class='energy-card'>", unsafe_allow_html=True)
@@ -286,7 +331,7 @@ with tab5:
     st.markdown("<div class='energy-card'>", unsafe_allow_html=True)
     st.subheader("Billing Editor")
     
-    # Original Billing Logic Preserved
+    # EXACT BILLING LOGIC PRESERVED FROM CODE 1
     try:
         resp = requests.get(BILLING_URL)
         wb = openpyxl.load_workbook(io.BytesIO(resp.content), data_only=False)
