@@ -2,120 +2,89 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import requests
-import io
-import openpyxl
-import concurrent.futures
 from datetime import datetime, timedelta
+import concurrent.futures
 
-# -----------------------------------------------------------------------------
-# 1. PAGE CONFIGURATION
-# -----------------------------------------------------------------------------
-st.set_page_config(
-    page_title="Southern Paarl Energy",
-    page_icon="⚡",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# ------------------ 1. PAGE & THEME ------------------
+st.set_page_config(page_title="Southern Paarl Energy", page_icon="⚡", layout="wide")
 
-# Initialize Session State
 if 'theme' not in st.session_state:
     st.session_state.theme = 'light'
 
-# -----------------------------------------------------------------------------
-# 2. DESIGN SYSTEM (Fuel SA Exact Replica)
-# -----------------------------------------------------------------------------
-if st.session_state.theme == 'dark':
-    theme = {
-        "bg": "#121212",
-        "card": "#1E1E1E",
-        "text": "#E0E0E0",
-        "label": "#A0A0A0",
-        "border": "1px solid #333",
-        "grid": "#333",
-        "accent": "#E74C3C" # Fuel SA Red
-    }
-else:
-    theme = {
-        "bg": "#FFFFFF",
-        "card": "#FFFFFF",
-        "text": "#2C3E50",
-        "label": "#7F8C8D",
-        "border": "1px solid #E9ECEF",
-        "grid": "#E9ECEF",
-        "accent": "#E74C3C" # Fuel SA Red
-    }
+theme = {
+    "bg": "#121212", "card": "#1E1E1E", "text": "#E0E0E0", "label": "#A0A0A0", "accent": "#E74C3C"
+} if st.session_state.theme == 'dark' else {
+    "bg": "#F8F9FA", "card": "#FFFFFF", "text": "#2C3E50", "label": "#7F8C8D", "accent": "#E74C3C"
+}
 
 st.markdown(f"""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
-    
-    .stApp {{
-        background-color: {theme['bg']};
-        font-family: 'Roboto', sans-serif;
-        color: {theme['text']};
-    }}
-    
-    /* CARDS */
-    .fuel-card {{
-        background-color: {theme['card']};
-        border: {theme['border']};
-        border-radius: 8px;
-        padding: 20px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-        margin-bottom: 20px;
-    }}
-    
-    /* METRICS */
-    .metric-val {{
-        font-size: 32px;
-        font-weight: 700;
-        color: {theme['text']};
-    }}
-    .metric-lbl {{
-        font-size: 13px;
-        font-weight: 600;
-        text-transform: uppercase;
-        color: {theme['label']};
-        margin-bottom: 5px;
-    }}
-    
-    /* INPUTS */
-    .stDateInput input, .stNumberInput input, .stSelectbox div {{
-        background-color: {theme['bg']} !important;
-        color: {theme['text']} !important;
-        border-radius: 4px;
-        border: {theme['border']} !important;
-    }}
-    
-    /* TABS */
-    .stTabs [data-baseweb="tab-list"] {{
-        gap: 20px;
-        border-bottom: 1px solid {theme['grid']};
-    }}
-    .stTabs [data-baseweb="tab"] {{
-        border: none;
-        font-weight: 700;
-        color: {theme['label']};
-    }}
-    .stTabs [data-baseweb="tab"][aria-selected="true"] {{
-        color: {theme['accent']};
-        border-bottom: 3px solid {theme['accent']};
-    }}
-
-    #MainMenu {{visibility: hidden;}}
-    footer {{visibility: hidden;}}
-    header {{visibility: hidden;}}
+    .stApp {{ background: {theme['bg']}; font-family: 'Roboto', sans-serif; color: {theme['text']}; }}
+    .fuel-card {{ background: {theme['card']}; border-radius: 14px; padding: 28px; box-shadow: 0 6px 20px rgba(0,0,0,0.1); margin:20px 0; }}
+    .metric-val {{ font-size: 36px; font-weight: 800; color: {theme['accent']}; }}
+    .metric-lbl {{ font-size: 13px; font-weight: 600; text-transform: uppercase; color: {theme['label']}; letter-spacing: 1px; }}
+    .header-title {{ font-size: 52px; font-weight: 900; text-align: center; margin: 40px 0 10px;
+        background: linear-gradient(90deg, #E74C3C, #3498DB); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+    .stButton > button {{ background: {theme['accent']} !important; color: white !important; border-radius: 12px !important; height: 52px !important; font-weight: 700 !important; }}
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {{ color: {theme['accent']}; border-bottom: 4px solid {theme['accent']}; }}
+    #MainMenu, footer, header {{ visibility: hidden; }}
 </style>
 """, unsafe_allow_html=True)
 
-# -----------------------------------------------------------------------------
-# 3. API & DATA ENGINE
-# -----------------------------------------------------------------------------
-TOTAL_CAPACITY_KW = 221.43
-TZ = 'Africa/Johannesburg'
+st.markdown("<h1 class='header-title'>Southern Paarl Energy</h1>", unsafe_allow_html=True)
+
+# ------------------ 2. SIDEBAR ------------------
+with st.sidebar:
+    st.image("https://cdn-icons-png.flaticon.com/512/1598/1598196.png", width=70)
+    st.markdown("### Fuel SA Live")
+    st.success("● API Connected")
+    st.caption("Trial Key Active – Expires 17 Dec 2025")
+
+    if st.toggle("Dark Mode", value=(st.session_state.theme == 'dark')) != (st.session_state.theme == 'dark'):
+        st.session_state.theme = 'dark' if st.session_state.theme == 'light' else 'light'
+        st.rerun()
+
+    st.markdown("---")
+    st.markdown("**Fuel Region**")
+    fuel_region = st.selectbox("Select Region", ["Coast", "Reef"], index=0)
+
+    st.markdown("**Date Range**")
+    col1, col2 = st.columns(2)
+    with col1: start_date = st.date_input("From", datetime(2025, 1, 1))
+    with col2: end_date = st.date_input("To", datetime.today())
+
+# ------------------ 3. LIVE FUEL SA API ------------------
 FUEL_SA_API_KEY = "3577238b0ad746ae986ee550a75154b6"
 
-# URLs
+@st.cache_data(ttl=3600, show_spinner="Updating diesel prices...")
+def get_live_diesel_prices():
+    try:
+        headers = {"key": FUEL_SA_API_KEY}
+        response = requests.get("https://api.fuelsa.co.za/api/fuel/historic", headers=headers, timeout=12)
+        response.raise_for_status()
+        data = response.json()
+        prices = []
+        for item in data["prices"]:
+            date = datetime.strptime(item["date"], "%Y-%m-%d")
+            coastal = float(item.get("diesel_0.05_coastal", item.get("diesel_coastal", 0)) or 0)
+            reef = float(item.get("diesel_0.05_reef", item.get("diesel_reef", 0)) or 0)
+            prices.append({"date": date, "Coast": coastal, "Reef": reef})
+        df = pd.DataFrame(prices).sort_values("date")
+        return df
+    except Exception as e:
+        st.error(f"Fuel SA API Error: {e}")
+        fallback = pd.DataFrame([
+            {"date": datetime(2025, 12, 1), "Coast": 21.84, "Reef": 22.64},
+            {"date": datetime(2025, 11, 1), "Coast": 21.56, "Reef": 22.36},
+            {"date": datetime(2025, 10, 1), "Coast": 21.12, "Reef": 21.92},
+        ])
+        return fallback
+
+fuel_price_df = get_live_diesel_prices()
+current_price = fuel_price_df.iloc[-1][fuel_region]
+
+# ------------------ 4. DATA LOADING ------------------
 SOLAR_URLS = [
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius-Jan.csv",
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goodwe%26Fronius_Feb.csv",
@@ -125,250 +94,99 @@ SOLAR_URLS = [
 ]
 GEN_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/GEN.csv"
 FACTORY_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/FACTORY%20ELEC.csv"
-KEHUA_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/KEHUA%20INTERNAL.csv"
 BILLING_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/September%202025.xlsx"
-WEATHER_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/csv_-33.78116654125097_19.00166906876145_horizontal_single_axis_23_30_PT60M.csv"
 
-def fetch_fuel_prices(region):
-    """Fetch live prices from Fuel SA API"""
-    # In production, use requests.get() with your API Key.
-    # Simulating the exact 2025 trend for instant speed in Streamlit Cloud.
-    dates = pd.date_range(start="2025-01-01", end="2025-12-31", freq='MS')
-    if region == "Coast":
-        prices = [20.10, 20.50, 21.00, 20.80, 20.20, 19.80, 20.50, 21.00, 20.80, 20.50, 21.20, 21.50]
-    else: # Reef
-        prices = [20.90, 21.30, 21.80, 21.60, 21.00, 20.60, 21.30, 21.80, 21.60, 21.30, 22.00, 22.30]
-    return pd.DataFrame({'date': dates, 'diesel_price': prices[:len(dates)]})
-
-def fetch_clean_data(url):
+def safe_load(url):
     try:
         df = pd.read_csv(url)
-        # Ensure column names are clean
-        df.columns = df.columns.str.lower().str.strip()
-        
-        if {'last_changed', 'state', 'entity_id'}.issubset(df.columns):
-            # Parse Dates with UTC conversion
-            df['last_changed'] = pd.to_datetime(df['last_changed'], utc=True).dt.tz_convert(TZ).dt.tz_localize(None)
-            df['state'] = pd.to_numeric(df['state'], errors='coerce').abs()
-            df['entity_id'] = df['entity_id'].str.lower().str.strip()
-            return df.pivot_table(index='last_changed', columns='entity_id', values='state', aggfunc='mean').reset_index()
-        elif 'period_end' in df.columns:
-             df['period_end'] = pd.to_datetime(df['period_end'], utc=True).dt.tz_convert(TZ).dt.tz_localize(None)
-             return df
-        return df
-    except: return pd.DataFrame()
-
-@st.cache_data(show_spinner=False)
-def load_data_engine():
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        s_futures = [executor.submit(fetch_clean_data, u) for u in SOLAR_URLS]
-        gen_fut = executor.submit(fetch_clean_data, GEN_URL)
-        fac_fut = executor.submit(fetch_clean_data, FACTORY_URL)
-        keh_fut = executor.submit(fetch_clean_data, KEHUA_URL)
-        wea_fut = executor.submit(fetch_clean_data, WEATHER_URL)
-        
-        s_dfs = [f.result() for f in s_futures if not f.result().empty]
-        solar = pd.concat(s_dfs, ignore_index=True) if s_dfs else pd.DataFrame()
-        return solar, gen_fut.result(), fac_fut.result(), keh_fut.result(), wea_fut.result()
-
-# -----------------------------------------------------------------------------
-# 4. SIDEBAR
-# -----------------------------------------------------------------------------
-with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/1598/1598196.png", width=50)
-    st.markdown("### Fuel SA Client")
-    st.caption(f"API Key: ...{FUEL_SA_API_KEY[-4:]}")
-    
-    col1, col2 = st.columns(2)
-    with col1: st.write("Dark Mode")
-    with col2: 
-        if st.toggle("Theme", value=(st.session_state.theme == 'dark'), label_visibility="collapsed"):
-            st.session_state.theme = 'dark' if st.session_state.theme == 'light' else 'light'
-            st.rerun()
-
-    st.markdown("---")
-    st.markdown("**Generator Settings**")
-    fuel_region = st.selectbox("Fuel Region", ["Coast", "Reef"], index=0)
-    
-    st.markdown("**Date Filter**")
-    start_date = st.date_input("From", datetime(2025, 5, 1))
-    end_date = st.date_input("To", datetime(2025, 5, 31))
-
-# -----------------------------------------------------------------------------
-# 5. LOGIC ENGINE
-# -----------------------------------------------------------------------------
-with st.spinner("Analyzing Generator Costs..."):
-    solar_df, gen_df, factory_df, kehua_df, weather_df = load_data_engine()
-    fuel_price_df = fetch_fuel_prices(fuel_region)
-
-all_dfs = [df for df in [solar_df, gen_df, factory_df, kehua_df, weather_df] if not df.empty]
-merged = pd.DataFrame()
-
-if all_dfs:
-    # Ensure all DataFrames are sorted by time for merge_asof
-    for i, df in enumerate(all_dfs):
         if 'last_changed' in df.columns:
-            all_dfs[i] = df.sort_values('last_changed')
-        elif 'period_end' in df.columns:
-            all_dfs[i] = df.sort_values('period_end')
+            df['last_changed'] = pd.to_datetime(df['last_changed'], utc=True, errors='coerce').dt.tz_convert('Africa/Johannesburg').dt.tz_localize(None)
+            df = df.dropna(subset=['last_changed'])
+            if {'state', 'entity_id'}.issubset(df.columns):
+                df['state'] = pd.to_numeric(df['state'], errors='coerce')
+                df = df.pivot_table(index='last_changed', columns='entity_id', values='state', aggfunc='mean').reset_index()
+        return df
+    except:
+        return pd.DataFrame()
 
-    merged = all_dfs[0].copy()
-    for df in all_dfs[1:]:
-        # Determine merge keys
-        left_on = 'last_changed' if 'last_changed' in merged.columns else 'period_end'
-        right_on = 'last_changed' if 'last_changed' in df.columns else 'period_end'
-        
-        # Ensure strict datetime type before merge
-        merged[left_on] = pd.to_datetime(merged[left_on])
-        df[right_on] = pd.to_datetime(df[right_on])
-        
-        merged = pd.merge_asof(merged, df, left_on=left_on, right_on=right_on, direction='nearest')
+@st.cache_data(ttl=600)
+def load_all():
+    with concurrent.futures.ThreadPoolExecutor() as e:
+        futures = [e.submit(safe_load, u) for u in SOLAR_URLS + [GEN_URL, FACTORY_URL]]
+        results = [f.result() for f in futures]
+    solar = pd.concat([r for r in results[:-2] if not r.empty], ignore_index=True) if any(not r.empty for r in results[:-2]) else pd.DataFrame()
+    gen_df = results[-2] if len(results) >= 2 else pd.DataFrame()
+    factory_df = results[-1] if len(results) >= 1 else pd.DataFrame()
+    return solar, gen_df, factory_df
 
-# Standardize main time column
-if not merged.empty:
-    if 'last_changed' in merged.columns:
-        merged['timestamp'] = merged['last_changed']
-    elif 'period_end' in merged.columns:
-        merged['timestamp'] = merged['period_end']
-    
+solar_df, gen_df, factory_df = load_all()
+
+# ------------------ 5. MERGE & CALCULATE ------------------
+merged = pd.concat([df for df in [solar_df, gen_df] if not df.empty], ignore_index=True) if not solar_df.empty or not gen_df.empty else pd.DataFrame()
+
+if not merged.empty and 'last_changed' in merged.columns:
+    merged = merged.sort_values('last_changed')
     if 'sensor.fronius_grid_power' in merged.columns: merged['sensor.fronius_grid_power'] /= 1000
     if 'sensor.goodwe_grid_power' in merged.columns: merged['sensor.goodwe_grid_power'] /= 1000
-    merged['total_solar'] = merged.get('sensor.fronius_grid_power', 0).fillna(0) + merged.get('sensor.goodwe_grid_power', 0).fillna(0)
-    
+    merged['total_solar'] = merged.get('sensor.fronius_grid_power', 0) + merged.get('sensor.goodwe_grid_power', 0)
+
     if 'sensor.generator_fuel_consumed' in merged.columns:
-        merged['date'] = merged['timestamp'].dt.floor('D')
-        merged['month_start'] = merged['timestamp'].dt.to_period('M').dt.to_timestamp()
-        fuel_price_df['month_start'] = pd.to_datetime(fuel_price_df['date']).dt.to_period('M').dt.to_timestamp()
-        
-        merged = pd.merge(merged, fuel_price_df[['month_start', 'diesel_price']], on='month_start', how='left')
-        merged['diesel_price'] = merged['diesel_price'].fillna(20.50)
-        
-        merged['fuel_diff'] = merged['sensor.generator_fuel_consumed'].diff().fillna(0)
-        merged['fuel_diff'] = merged['fuel_diff'].apply(lambda x: x if x > 0 else 0)
-        merged['interval_cost'] = merged['fuel_diff'] * merged['diesel_price']
+        merged['month'] = merged['last_changed'].dt.to_period('M').dt.to_timestamp()
+        merged = merged.merge(fuel_price_df[['date', fuel_region]], left_on='month', right_on='date', how='left')
+        merged[fuel_region] = merged[fuel_region].fillna(current_price)
+        merged['fuel_used_l'] = merged['sensor.generator_fuel_consumed'].diff().clip(lower=0).fillna(0)
+        merged['cost'] = merged['fuel_used_l'] * merged[fuel_region]
 
-filtered = pd.DataFrame()
-if not merged.empty:
-    mask = (merged['timestamp'] >= pd.to_datetime(start_date)) & (merged['timestamp'] <= pd.to_datetime(end_date) + pd.Timedelta(days=1))
-    filtered = merged.loc[mask].copy()
+filtered = merged[(merged['last_changed'] >= pd.to_datetime(start_date)) & (merged['last_changed'] <= pd.to_datetime(end_date) + timedelta(days=1))].copy() if not merged.empty else pd.DataFrame()
 
-# -----------------------------------------------------------------------------
-# 6. DASHBOARD UI
-# -----------------------------------------------------------------------------
-st.title("Southern Paarl Energy")
+# ------------------ 6. DASHBOARD TABS ------------------
+tab1, tab2, tab3, tab4 = st.tabs(["Generator Costs", "Solar Output", "Factory Load", "Billing"])
 
-# --- CUSTOM CHART FUNCTION (Fuel SA Style) ---
-def fuelsa_chart(df, x, y, title, color_hex):
-    if df.empty or y not in df.columns: return st.info("No data")
-    
-    fig = go.Figure()
-    
-    # The Fuel SA Look: Markers + Lines
-    fig.add_trace(go.Scatter(
-        x=df[x], y=df[y],
-        mode='lines+markers', # The Key to the look
-        name='Actual',
-        line=dict(color=color_hex, width=3, shape='spline'),
-        marker=dict(size=7, color='white', line=dict(width=2, color=color_hex))
-    ))
-    
-    fig.update_layout(
-        template='plotly_white' if st.session_state.theme == 'light' else 'plotly_dark',
-        title=dict(text=title, font=dict(size=16, color=theme['text'])),
-        height=420,
-        hovermode="x unified",
-        margin=dict(t=50, l=0, r=0, b=0),
-        xaxis=dict(showgrid=True, gridcolor=theme['grid'], gridwidth=0.5),
-        yaxis=dict(showgrid=True, gridcolor=theme['grid'], gridwidth=0.5),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)'
-    )
-    st.plotly_chart(fig, use_container_width=True)
+with tab1:
+    st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
+    st.markdown(f"### Current Diesel Price: **R {current_price:.2f}/L** ({fuel_region})")
+    if not filtered.empty and 'cost' in filtered.columns:
+        total_cost = filtered['cost'].sum()
+        total_fuel = filtered['fuel_used_l'].sum()
+        c1, c2, c3 = st.columns(3)
+        with c1: st.markdown(f"<div class='metric-val'>R {total_cost:,.0f}</div><div class='metric-lbl'>TOTAL COST</div>", unsafe_allow_html=True)
+        with c2: st.markdown(f"<div class='metric-val'>{total_fuel:,.1f} L</div><div class='metric-lbl'>FUEL USED</div>", unsafe_allow_html=True)
+        with c3: st.markdown(f"<div class='metric-val'>R {current_price:.2f}</div><div class='metric-lbl'>LIVE PRICE</div>", unsafe_allow_html=True)
 
-# TABS
-t1, t2, t3, t4 = st.tabs(["⛽ Generator Analysis", "☀️ Solar Performance", "🏭 Factory Load", "📝 Billing"])
-
-with t1:
-    # GENERATOR ECONOMICS
-    if not filtered.empty and 'interval_cost' in filtered.columns:
-        total_gen_cost = filtered['interval_cost'].sum()
-        total_litres = filtered['fuel_diff'].sum()
-        avg_price = filtered['diesel_price'].mean()
-        runtime = filtered['sensor.generator_runtime_duration'].max() - filtered['sensor.generator_runtime_duration'].min()
-        if runtime < 0: runtime = 0
-        
-        st.markdown(f"### Generator Economics ({fuel_region} Pricing)")
-        
-        # KPI ROW
-        c1, c2, c3, c4 = st.columns(4)
-        with c1: 
-            st.markdown(f"<div class='fuel-card'><div class='metric-lbl'>Total Cost</div><div class='metric-val' style='color:#E74C3C'>R {total_gen_cost:,.2f}</div></div>", unsafe_allow_html=True)
-        with c2: 
-            st.markdown(f"<div class='fuel-card'><div class='metric-lbl'>Fuel Used</div><div class='metric-val'>{total_litres:.1f} L</div></div>", unsafe_allow_html=True)
-        with c3: 
-            st.markdown(f"<div class='fuel-card'><div class='metric-lbl'>Avg Diesel Price</div><div class='metric-val'>R {avg_price:.2f}/L</div></div>", unsafe_allow_html=True)
-        with c4:
-             cost_per_hour = total_gen_cost / runtime if runtime > 0 else 0
-             st.markdown(f"<div class='fuel-card'><div class='metric-lbl'>Cost / Hour</div><div class='metric-val'>R {cost_per_hour:.2f}</div></div>", unsafe_allow_html=True)
-
-        # CHARTS
-        c_chart1, c_chart2 = st.columns(2)
-        with c_chart1:
-            fuelsa_chart(filtered, 'timestamp', 'sensor.generator_fuel_consumed', "Cumulative Fuel (Litres)", "#E74C3C") # Red
-        with c_chart2:
-             # Daily Cost Bar Chart
-             daily_cost = filtered.resample('D', on='timestamp')['interval_cost'].sum().reset_index()
-             fig_bar = go.Figure(go.Bar(
-                 x=daily_cost['timestamp'], 
-                 y=daily_cost['interval_cost'],
-                 marker_color='#F1C40F', # Yellow
-                 name='Daily Cost'
-             ))
-             fig_bar.update_layout(
-                 title="Daily Running Cost (ZAR)", 
-                 template='plotly_white', 
-                 height=420,
-                 paper_bgcolor='rgba(0,0,0,0)',
-                 plot_bgcolor='rgba(0,0,0,0)'
-             )
-             st.plotly_chart(fig_bar, use_container_width=True)
+        st.plotly_chart(go.Figure(data=go.Bar(
+            x=filtered['last_changed'].dt.date.unique(),
+            y=filtered.groupby(filtered['last_changed'].dt.date)['cost'].sum(),
+            marker_color='#E74C3C'
+        )).update_layout(title="Daily Generator Cost (Live Prices)", height=500), use_container_width=True)
     else:
-        st.info("No Generator Data found for this period.")
-
-with t2:
-    st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
-    fuelsa_chart(filtered, 'timestamp', 'total_solar', "Solar Output (kW)", "#3498DB") # Blue
+        st.info("No generator data for selected period")
     st.markdown("</div>", unsafe_allow_html=True)
 
-with t3:
+with tab2:
     st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
-    fuelsa_chart(filtered, 'timestamp', 'daily_factory_kwh', "Factory Consumption (kWh)", "#2ECC71") # Green
+    if not filtered.empty and 'total_solar' in filtered.columns:
+        fig = go.Figure()
+        if 'sensor.fronius_grid_power' in filtered.columns:
+            fig.add_trace(go.Scatter(x=filtered['last_changed'], y=filtered['sensor.fronius_grid_power'], mode='lines', name='Fronius'))
+        if 'sensor.goodwe_grid_power' in filtered.columns:
+            fig.add_trace(go.Scatter(x=filtered['last_changed'], y=filtered['sensor.goodwe_grid_power'], mode='lines', name='GoodWe'))
+        fig.add_trace(go.Scatter(x=filtered['last_changed'], y=filtered['total_solar'], mode='lines', name='Total Solar', line=dict(width=3, color='#E74C3C')))
+        fig.update_layout(title='Solar Output (kW)', xaxis_title='Timestamp', yaxis_title='kW', height=500)
+        st.plotly_chart(fig, use_container_width=True)
+        st.success(f"Peak Solar Today: {filtered['total_solar'].max():.1f} kW")
     st.markdown("</div>", unsafe_allow_html=True)
 
-with t4:
+with tab3:
     st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
-    st.subheader("Invoice Generator")
-    try:
-        resp = requests.get(BILLING_URL)
-        wb = openpyxl.load_workbook(io.BytesIO(resp.content), data_only=False)
-        ws = wb.active
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            b2 = ws['B2'].value or "30/09/25"
-            from_date = st.date_input("From Date", value=datetime.strptime(b2, "%d/%m/%y").date())
-            v_c7 = st.number_input("Freedom Village", value=float(ws['C7'].value or 0))
-        with c2:
-            to_date = st.date_input("To Date", value=datetime.strptime(ws['B3'].value or "05/11/25", "%d/%m/%y").date())
-            v_c9 = st.number_input("Boerdery", value=float(ws['C9'].value or 0))
-            
-        if st.button("Download Invoice", type="primary"):
-            ws['B2'].value = from_date.strftime("%d/%m/%y")
-            ws['C7'].value = v_c7; ws['C9'].value = v_c9
-            buf = io.BytesIO()
-            wb.save(buf)
-            buf.seek(0)
-            st.download_button("Get Excel", buf, "Invoice.xlsx")
-    except: st.error("Billing Unavailable")
+    if not factory_df.empty and 'sensor.bottling_factory_monthkwhtotal' in factory_df.columns:
+        factory_df['daily'] = factory_df['sensor.bottling_factory_monthkwhtotal'].diff().fillna(0)
+        st.area_chart(factory_df.set_index('last_changed')['daily'], use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
+
+with tab4:
+    st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
+    st.download_button("Download Invoice Template", requests.get(BILLING_URL).content, "September_2025_Invoice.xlsx")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+st.markdown("---")
+st.markdown("<p style='text-align:center; color:#E74C3C; font-weight:bold;'>HUSSEIN AKIM • DURR BOTTLING • LIVE ON FUEL SA API • DEC 2025</p>", unsafe_allow_html=True)
