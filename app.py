@@ -11,7 +11,7 @@ import concurrent.futures
 from datetime import datetime, timedelta
 
 # ------------------ PAGE CONFIG ------------------
-st.set_page_config(page_title="Southern Paarl Energy", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Southern Paarl Energy", page_icon="Lightning", layout="wide", initial_sidebar_state="expanded")
 
 # Initialize theme
 if 'theme' not in st.session_state:
@@ -49,15 +49,14 @@ st.markdown(f"<p style='text-align:center; color:{theme['label']}; font-size:18p
 # ------------------ 4. SIDEBAR ------------------
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/1598/1598196.png", width=60)
-    st.markdown("### Fuel SA Client")
-    st.caption("API Connected: ...{FUEL_SA_API_KEY[-4:]}")
+    st.markdown("### Fuel SA client")
+    st.caption(f"API Connected: ...{FUEL_SA_API_KEY[-4:]}")
     
     col1, col2 = st.columns([0.7, 0.3])
     with col1: st.write("Dark Mode")
     with col2:
-        dark = st.toggle("Theme", value=(st.session_state.theme == 'dark'), label_visibility="collapsed")
-        if dark != (st.session_state.theme == 'dark'):
-            st.session_state.theme = 'dark' if dark else 'light'
+        if st.toggle("Theme", value=(st.session_state.theme == 'dark'), label_visibility="collapsed") != (st.session_state.theme == 'dark'):
+            st.session_state.theme = 'dark' if st.session_state.theme == 'light' else 'light'
             st.rerun()
     
     st.markdown("---")
@@ -94,20 +93,52 @@ def get_live_diesel_prices(region):
         prices = [20.10, 20.50, 21.00, 20.80, 20.20, 19.80, 20.50, 21.00, 20.80, 20.50, 21.20, 21.50]
         return pd.DataFrame({'date': dates, 'price': prices[:len(dates)]})
 
-# ------------------ 6. DATA ENGINE ------------------
-with st.spinner("Loading all data sources..."):
-    solar_df, gen_df, factory_df, kehua_df, weather_df = load_data_engine()
-
 fuel_price_df = get_live_diesel_prices(fuel_region)
 current_price = fuel_price_df.iloc[-1][fuel_region] if not fuel_price_df.empty else 20.50
 
-# Merge and calculate costs
-merged = pd.concat([df for df in [solar_df, gen_df] if not df.empty], ignore_index=True) if not solar_df.empty or not gen_df.empty else pd.DataFrame()
-if not merged.empty and 'last_changed' in merged.columns:
-    merged = merged.sort_values('last_changed')
+# ------------------ 6. DATA LOADING (Concurrent) ------------------
+SOLAR_URLS = [
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius-Jan.csv",
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goodwe%26Fronius_Feb.csv",
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goddwe%26Fronius_March.csv",
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe%26Fronius_April.csv",
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe%26Fronius_may.csv"
+]
+GEN_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/GEN.csv"
+FACTORY_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/FACTORY%20ELEC.csv"
+KEHUA_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/KEHUA%20INTERNAL.csv"
+BILLING_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/September%202025.xlsx"
+WEATHER_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/csv_-33.78116654125097_19.00166906876145_horizontal_single_axis_23_30_PT60M.csv"
+
+def fetch_clean_data(url):
+    try:
+        df = pd.read_csv(url)
+        if {'last_changed', 'state', 'entity_id'}.issubset(df.columns):
+            df['last_changed'] = pd.to_datetime(df['last_changed'], utc=True).dt.tz_convert(TZ).dt.tz_localize(None)
+            df['state'] = pd.to_numeric(df['state'], errors='coerce').abs()
+            df['entity_id'] = df['entity_id'].str.lower().str.strip()
+            return df.pivot_table(index='last_changed', columns='entity_id', values='state', aggfunc='mean').reset_index()
+        return df
+    except: return pd.DataFrame()
+
+@st.cache_data(show_spinner="Loading data...")
+def load_data_engine():
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = [executor.submit(fetch_clean_data, u) for u in SOLAR_URLS + [GEN_URL, FACTORY_URL, KEHUA_URL, WEATHER_URL]]
+        results = [f.result() for f in futures]
+    solar_df = pd.concat([r for r in results[:len(SOLAR_URLS)] if not r.empty], ignore_index=True) if any(not r.empty for r in results[:len(SOLAR_URLS)]) else pd.DataFrame()
+    gen_df, factory_df, kehua_df, weather_df = results[-4:]
+    return solar_df, gen_df, factory_df, kehua_df, weather_df
+
+solar_df, gen_df, factory_df, kehua_df, weather_df = load_data_engine()
+
+# ------------------ 7. DATA PROCESSING ------------------
+merged = pd.concat([df for df in [solar_df, gen_df, factory_df, kehua_df, weather_df] if not df.empty], ignore_index=True).drop_duplicates(subset='last_changed', keep='first') if all_dfs else pd.DataFrame()
+
+if not merged.empty:
     if 'sensor.fronius_grid_power' in merged.columns: merged['sensor.fronius_grid_power'] /= 1000
     if 'sensor.goodwe_grid_power' in merged.columns: merged['sensor.goodwe_grid_power'] /= 1000
-    merged['total_solar'] = merged.get('sensor.fronius_grid_power', 0) + merged.get('sensor.goodwe_grid_power', 0)
+    merged['total_solar'] = merged.get('sensor.fronius_grid_power', 0).fillna(0) + merged.get('sensor.goodwe_grid_power', 0).fillna(0)
     
     if 'sensor.generator_fuel_consumed' in merged.columns:
         merged['month'] = merged['last_changed'].dt.to_period('M').dt.to_timestamp()
@@ -116,19 +147,11 @@ if not merged.empty and 'last_changed' in merged.columns:
         merged['fuel_diff'] = merged['sensor.generator_fuel_consumed'].diff().clip(lower=0).fillna(0)
         merged['interval_cost'] = merged['fuel_diff'] * merged[fuel_region]
 
-filtered = merged[(merged['last_changed'] >= pd.to_datetime(start_date)) & (merged['last_changed'] <= pd.to_datetime(end_date) + timedelta(days=1))].copy() if not merged.empty else pd.DataFrame()
+if not factory_df.empty and 'sensor.bottling_factory_monthkwhtotal' in factory_df.columns:
+    factory_df = factory_df.sort_values('last_changed')
+    factory_df['daily_factory_kwh'] = factory_df['sensor.bottling_factory_monthkwhtotal'].diff().fillna(0)
 
-# ------------------ 7. CHART FUNCTION ------------------
-def fuelsa_chart(df, x, y, title, color):
-    if df.empty or y not in df.columns:
-        return st.info("No data available")
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df[x], y=df[y], mode='lines+markers', name=title,
-                             line=dict(color=color, width=3, shape='spline'),
-                             marker=dict(size=8, color='white', line=dict(width=2, color=color))))
-    fig.update_layout(template='plotly_white' if st.session_state.theme == 'light' else 'plotly_dark',
-                      title=title, height=420, margin=dict(t=60), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-    st.plotly_chart(fig, use_container_width=True)
+filtered = merged[(merged['last_changed'] >= pd.to_datetime(start_date)) & (merged['last_changed'] <= pd.to_datetime(end_date) + timedelta(days=1))].copy() if not merged.empty else pd.DataFrame()
 
 # ------------------ 8. TABS ------------------
 tab1, tab2, tab3, tab4 = st.tabs(["⛽ Generator Analysis", "☀️ Solar Performance", "🏭 Factory Load", "📝 Billing Editor"])
@@ -155,12 +178,16 @@ with tab1:
 
 with tab2:
     st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
-    fuelsa_chart(filtered, 'last_changed', 'total_solar', "Solar Output (kW)", "#3498DB")
+    if not filtered.empty and 'total_solar' in filtered.columns:
+        st.plotly_chart(go.Figure(go.Scatter(x=filtered['last_changed'], y=filtered['total_solar'], mode='lines+markers', name='Solar Output')), use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with tab3:
     st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
-    fuelsa_chart(filtered, 'last_changed', 'daily_factory_kwh', "Daily Factory Consumption (kWh)", "#2ECC71")
+    if not factory_df.empty and 'sensor.bottling_factory_monthkwhtotal' in factory_df.columns:
+        factory_df = factory_df.sort_values('last_changed')
+        factory_df['daily'] = factory_df['sensor.bottling_factory_monthkwhtotal'].diff().fillna(0)
+        st.area_chart(factory_df.set_index('last_changed')['daily'], use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with tab4:
@@ -187,5 +214,5 @@ with tab4:
     except: st.error("Billing template unavailable")
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ------------------ 9. FOOTER ------------------
-st.markdown(f"<p style='text-align:center; color:{theme['label']}; margin:60px 0 20px;'>Hussein Akim • Durr Bottling • Live on Fuel SA API • Dec 2025</p>", unsafe_allow_html=True)
+st.markdown("---")
+st.markdown("<p style='text-align:center; color:#E74C3C; font-weight:bold;'>HUSSEIN AKIM • DURR BOTTLING • LIVE ON FUEL SA API • DEC 2025</p>", unsafe_allow_html=True)
