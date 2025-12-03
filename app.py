@@ -1,3 +1,14 @@
+Here is the **Complete Final Code** with the **Sidebar Fixed**.
+
+I have added specific CSS rules to ensure the **Sidebar** behaves exactly like the main page:
+
+1.  **Light Mode:** Sidebar is **White** with **Pitch Black** text.
+2.  **Dark Mode:** Sidebar is **Dark Grey** with **White** text.
+3.  **Inputs:** Sidebar inputs (Sliders, Date Pickers) are now high-contrast and clearly visible in both modes.
+
+### `app.py` (Copy and Paste)
+
+```python
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -14,7 +25,7 @@ st.set_page_config(
     page_title="Southern Paarl Energy",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 # Initialize Session State for Theme
@@ -28,8 +39,9 @@ if 'theme' not in st.session_state:
 if st.session_state.theme == 'dark':
     theme = {
         "bg": "#0e1117",
+        "sidebar_bg": "#161b22",    # Darker Sidebar
         "card": "#1e212b",
-        "text": "#ffffff",          # White text for Dark Mode
+        "text": "#ffffff",          # White text
         "subtext": "#a0a0a0",
         "border": "1px solid rgba(255, 255, 255, 0.1)",
         "chart": "plotly_dark",
@@ -39,9 +51,10 @@ if st.session_state.theme == 'dark':
 else:
     theme = {
         "bg": "#f0f2f6",            # Light Grey Background
+        "sidebar_bg": "#ffffff",    # Pure White Sidebar
         "card": "#ffffff",
-        "text": "#000000",          # PURE BLACK text for Light Mode
-        "subtext": "#333333",       # Dark Grey subtext
+        "text": "#000000",          # PURE BLACK text
+        "subtext": "#444444",       # Dark Grey subtext
         "border": "1px solid rgba(0, 0, 0, 0.1)",
         "chart": "plotly_white",
         "accent": "#007AFF",
@@ -60,11 +73,28 @@ st.markdown(f"""
         color: {theme['text']} !important;
     }}
 
+    /* SIDEBAR STYLING (FIXED) */
+    [data-testid="stSidebar"] {{
+        background-color: {theme['sidebar_bg']} !important;
+        border-right: {theme['border']} !important;
+    }}
+    
+    /* Force Sidebar Text Color */
+    [data-testid="stSidebar"] h1, 
+    [data-testid="stSidebar"] h2, 
+    [data-testid="stSidebar"] h3, 
+    [data-testid="stSidebar"] p, 
+    [data-testid="stSidebar"] div, 
+    [data-testid="stSidebar"] span, 
+    [data-testid="stSidebar"] label {{
+        color: {theme['text']} !important;
+    }}
+
     /* HIDE STREAMLIT CHROME */
     #MainMenu {{visibility: hidden;}}
     footer {{visibility: hidden;}}
 
-    /* CARD DESIGN (Glassmorphism) */
+    /* CARD DESIGN */
     .energy-card, .metric-card {{
         background-color: {theme['card']};
         border-radius: 16px;
@@ -94,18 +124,18 @@ st.markdown(f"""
         margin-top: 5px;
     }}
 
-    /* INPUTS VISIBILITY FIX (CRITICAL) */
+    /* INPUTS VISIBILITY FIX */
     .stDateInput input, .stNumberInput input, .stTextInput input, .stSelectbox div, .stSelectbox span {{
         color: {theme['text']} !important;
         background-color: {theme['input_bg']} !important;
         border-radius: 8px !important;
         border: {theme['border']} !important;
         caret-color: {theme['text']} !important;
-        -webkit-text-fill-color: {theme['text']} !important; /* Forces color in Chrome/Safari */
+        -webkit-text-fill-color: {theme['text']} !important;
     }}
     
-    /* Ensure Labels are Visible */
-    label, .stMarkdown p {{
+    /* Slider Labels Fix */
+    .stSlider label {{
         color: {theme['text']} !important;
     }}
 
@@ -390,3 +420,4 @@ with tab5:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
     st.markdown("</div>", unsafe_allow_html=True)
+```
