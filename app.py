@@ -1,6 +1,5 @@
-# app.py — Southern Paarl Energy Dashboard (Professional UI Update)
-# Logic: EXACTLY as requested (Original Linear Loading)
-# UI: High-end Corporate SaaS Design + Fixed Inputs
+# app.py — Southern Paarl Energy Dashboard (Fixed & Enhanced)
+# Fixed: Labels, data filtering, UI consistency, responsiveness • December 2025
 
 import streamlit as st
 import pandas as pd
@@ -10,188 +9,95 @@ import io
 import openpyxl
 from datetime import datetime, timedelta
 
-# -----------------------------------------------------------------------------
-# 1. PAGE CONFIGURATION & THEME STATE
-# -----------------------------------------------------------------------------
-st.set_page_config(
-    page_title="Southern Paarl Energy",
-    page_icon="⚡",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# ------------------ PAGE CONFIG ------------------
+st.set_page_config(page_title="Southern Paarl Energy", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
 
-# Initialize Session State for Theme
-if 'theme' not in st.session_state:
-    st.session_state.theme = 'light'
-
-# -----------------------------------------------------------------------------
-# 2. CSS STYLING (PROFESSIONAL & CLEAN)
-# -----------------------------------------------------------------------------
-# Define Color Schemes
-if st.session_state.theme == 'dark':
-    # Professional Dark (Deep Slate)
-    colors = {
-        "bg": "#0e1117",
-        "sidebar": "#161b22",
-        "card": "#1f242d",
-        "text": "#e6e6e6",
-        "subtext": "#a0a0a0",
-        "border": "#30363d",
-        "primary": "#3b82f6", # Corporate Blue
-        "chart_theme": "plotly_dark",
-        "shadow": "0 4px 6px -1px rgba(0, 0, 0, 0.5)"
-    }
-else:
-    # Professional Light (Clean White/Grey)
-    colors = {
-        "bg": "#f0f2f5",
-        "sidebar": "#ffffff",
-        "card": "#ffffff",
-        "text": "#1f2937",
-        "subtext": "#6b7280",
-        "border": "#e5e7eb",
-        "primary": "#2563eb", # Corporate Blue
-        "chart_theme": "plotly_white",
-        "shadow": "0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)"
-    }
-
-st.markdown(f"""
+# ------------------ ENHANCED UI CSS ------------------
+st.markdown("""
 <style>
-    /* Main Background */
-    .stApp {{
-        background-color: {colors['bg']};
-    }}
+    .stApp {background: #f8f9fb;}
+    [data-testid="stAppViewContainer"] > .main {background: #f8f9fb;}
+    [data-testid="stSidebar"] {background: white; border-right: 1px solid #e5e5e7;}
     
-    /* Sidebar */
-    [data-testid="stSidebar"] {{
-        background-color: {colors['sidebar']};
-        border-right: 1px solid {colors['border']};
-    }}
+    h1, h2, h3, p, div, span, label, .stMarkdown {color: #1d1d1f !important; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;}
     
-    /* Global Typography */
-    h1, h2, h3, p, div, span, label, .stMarkdown {{
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
-        color: {colors['text']} !important;
-    }}
+    .energy-card {
+        background: white !important;
+        border-radius: 16px !important;
+        padding: 24px !important;
+        margin: 20px 0 !important;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.08) !important;
+        border: 1px solid #e5e5e7 !important;
+    }
     
-    /* Professional Card Container */
-    .energy-card {{
-        background-color: {colors['card']};
-        border-radius: 12px;
-        padding: 24px;
-        margin-bottom: 24px;
-        box-shadow: {colors['shadow']};
-        border: 1px solid {colors['border']};
-    }}
+    .header-title {
+        font-size: 48px !important;
+        font-weight: 700 !important;
+        background: linear-gradient(90deg, #007AFF, #00C853) !important;
+        -webkit-background-clip: text !important;
+        -webkit-text-fill-color: transparent !important;
+        text-align: center !important;
+        margin: 40px 0 10px 0 !important;
+    }
     
-    /* Input Fields - FIXING THE CALENDAR BUG */
-    /* We do NOT force text color on inputs globally, letting Streamlit handle the internal contrast */
-    .stDateInput div, .stTextInput div, .stNumberInput div {{
-        color: inherit;
-    }}
-    
-    /* Header Styling */
-    .header-title {{
-        font-size: 32px;
-        font-weight: 700;
-        letter-spacing: -0.5px;
-        margin-bottom: 8px;
-        color: {colors['text']} !important;
-    }}
-    
-    /* Customizing the Plotly Chart Container */
-    .js-plotly-plot .plotly {{
-        background-color: transparent !important;
-    }}
-    
-    /* Buttons */
-    .stButton > button {{
-        background-color: {colors['primary']} !important;
+    .stButton > button {
+        background: #007AFF !important;
         color: white !important;
-        border-radius: 8px;
-        font-weight: 500;
-        border: none;
-        padding: 0.5rem 1rem;
-        transition: all 0.2s;
-    }}
-    .stButton > button:hover {{
-        opacity: 0.9;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    }}
+        border-radius: 12px !important;
+        height: 48px !important;
+        font-weight: 600 !important;
+        border: none !important;
+    }
     
-    /* Hide Streamlit Default Elements */
-    #MainMenu {{visibility: hidden;}}
-    footer {{visibility: hidden;}}
+    .stButton > button:hover {background: #0066CC !important;}
     
+    /* Responsive columns */
+    @media (max-width: 768px) {
+        .stColumns .stColumn {width: 100% !important;}
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# -----------------------------------------------------------------------------
-# 3. SIDEBAR NAVIGATION
-# -----------------------------------------------------------------------------
+# ------------------ HEADER ------------------
+st.markdown("<h1 class='header-title'>Southern Paarl Energy</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center; color:#555; font-size:18px; margin-bottom:40px;'>Solar • Generator • Factory • Billing Dashboard</p>", unsafe_allow_html=True)
+
+# ------------------ SIDEBAR ------------------
 with st.sidebar:
-    # Profile / Brand Header
-    st.markdown(f"""
-    <div style="padding: 20px 0; border-bottom: 1px solid {colors['border']}; margin-bottom: 20px;">
-        <div style="display:flex; align-items:center; gap:15px;">
-            <div style="width:40px; height:40px; background:{colors['primary']}; border-radius:8px; display:flex; align-items:center; justify-content:center; color:white; font-weight:bold;">HA</div>
-            <div>
-                <div style="font-weight:600; font-size:15px; color:{colors['text']}">Hussein Akim</div>
-                <div style="font-size:12px; color:{colors['subtext']}">Durr Bottling</div>
-            </div>
+    st.markdown("""
+    <div style="text-align:center; padding:30px 0;">
+        <div style="width:80px; height:80px; background:linear-gradient(135deg,#007AFF,#00C853); border-radius:50%; margin:0 auto 20px; display:flex; align-items:center; justify-content:center; color:white; font-weight:bold; font-size:32px;">
+            HA
         </div>
+        <div style="font-weight:700; font-size:24px;">Hussein Akim</div>
     </div>
     """, unsafe_allow_html=True)
-
-    # Theme Toggle
-    col_t1, col_t2 = st.columns([0.8, 0.2])
-    with col_t1: st.write("Dark Mode")
-    with col_t2: 
-        if st.toggle("Theme", value=(st.session_state.theme == 'dark'), label_visibility="collapsed"):
-            if st.session_state.theme == 'light':
-                st.session_state.theme = 'dark'
-                st.rerun()
-        else:
-            if st.session_state.theme == 'dark':
-                st.session_state.theme = 'light'
-                st.rerun()
-
+    
     st.markdown("### Configuration")
-    
-    st.markdown(f"<span style='color:{colors['subtext']}; font-size:12px'>PARAMETERS</span>", unsafe_allow_html=True)
+    st.markdown("**GTI Factor**")
     gti_factor = st.slider("GTI Factor", 0.50, 1.50, 1.00, 0.01)
+    
+    st.markdown("**Performance Ratio**")
     pr_ratio = st.slider("Performance Ratio", 0.50, 1.00, 0.80, 0.01)
-    cost_per_unit = st.number_input("Cost (ZAR/kWh)", min_value=0.0, value=2.98, step=0.01)
     
-    st.markdown(f"<br><span style='color:{colors['subtext']}; font-size:12px'>TIMEFRAME</span>", unsafe_allow_html=True)
-    start_date = st.date_input("From Date", datetime(2025, 5, 1))
-    end_date = st.date_input("To Date", datetime(2025, 5, 31))
+    st.markdown("**Cost per kWh (ZAR)**")
+    cost_per_unit = st.number_input("Cost per kWh", min_value=0.0, value=2.98, step=0.01)
     
-    st.markdown(f"<div style='margin: 20px 0; border-top: 1px solid {colors['border']}'></div>", unsafe_allow_html=True)
+    st.markdown("**Date Range**")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("**From**")
+        start_date = st.date_input("From Date", datetime(2025, 5, 1))
+    with col2:
+        st.markdown("**To**")
+        end_date = st.date_input("To Date", datetime(2025, 5, 31))
     
-    # Navigation
-    page = st.radio("Dashboard View", ["Solar", "Generator", "Factory", "Kehua", "Billing"], label_visibility="collapsed")
+    st.markdown("---")
+    st.markdown("### Navigation")
+    page = st.radio("Navigate", ["Solar", "Generator", "Factory", "Kehua", "Billing"], label_visibility="collapsed")
 
-# -----------------------------------------------------------------------------
-# 4. DATA LOADING & LOGIC (UNCHANGED)
-# -----------------------------------------------------------------------------
-TOTAL_CAPACITY_KW = 221.43
-TZ = 'Africa/Johannesburg'
-
-SOLAR_URLS = [
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius-Jan.csv",
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goodwe%26Fronius_Feb.csv",
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goddwe%26Fronius_March.csv",
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe%26Fronius_April.csv",
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe%26Fronius_may.csv"
-]
-WEATHER_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/csv_-33.78116654125097_19.00166906876145_horizontal_single_axis_23_30_PT60M.csv"
-GEN_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/GEN.csv"
-FACTORY_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/FACTORY%20ELEC.csv"
-KEHUA_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/KEHUA%20INTERNAL.csv"
-BILLING_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/September%202025.xlsx"
-
-@st.cache_data(show_spinner="Loading data...")
+# ------------------ DATA LOADING ------------------
+@st.cache_data
 def load_csvs(urls):
     dfs = []
     for url in urls:
@@ -203,18 +109,20 @@ def load_csvs(urls):
                 df['entity_id'] = df['entity_id'].str.lower().str.strip()
                 piv = df.pivot_table(index='last_changed', columns='entity_id', values='state', aggfunc='mean').reset_index()
                 dfs.append(piv)
-        except Exception as e: print(f"Error loading {url}: {e}")
+        except Exception as e:
+            st.warning(f"Could not load {url}: {e}")
     return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
-@st.cache_data(show_spinner="Loading weather data...")
+@st.cache_data
 def load_weather(gti, pr):
     try:
         df = pd.read_csv(WEATHER_URL)
         df['period_end'] = pd.to_datetime(df['period_end'], utc=True).dt.tz_convert(TZ).dt.tz_localize(None)
         df['expected_power_kw'] = df['gti'] * gti * TOTAL_CAPACITY_KW * pr / 1000
         return df
-    except Exception as e: print(f"Error loading weather: {e}")
-    return pd.DataFrame()
+    except Exception as e:
+        st.warning(f"Could not load weather data: {e}")
+        return pd.DataFrame()
 
 solar_df = load_csvs(SOLAR_URLS)
 weather_df = load_weather(gti_factor, pr_ratio)
@@ -227,69 +135,46 @@ if not factory_df.empty and 'sensor.bottling_factory_monthkwhtotal' in factory_d
     factory_df['daily_factory_kwh'] = factory_df['sensor.bottling_factory_monthkwhtotal'].diff().fillna(0)
 
 all_dfs = [df for df in [solar_df, gen_df, factory_df, kehua_df, weather_df] if not df.empty]
+merged = pd.DataFrame()
 if all_dfs:
     merged = all_dfs[0].copy()
     for df in all_dfs[1:]:
         col = 'last_changed' if 'last_changed' in df.columns else 'period_end'
         merged = pd.merge_asof(merged.sort_values('last_changed'), df.sort_values(col),
                                left_on='last_changed', right_on=col, direction='nearest')
-else:
-    merged = pd.DataFrame()
 
 if not merged.empty:
-    if 'sensor.fronius_grid_power' in merged.columns: merged['sensor.fronius_grid_power'] /= 1000
-    if 'sensor.goodwe_grid_power' in merged.columns: merged['sensor.goodwe_grid_power'] /= 1000
+    for col in ['sensor.fronius_grid_power', 'sensor.goodwe_grid_power']:
+        if col in merged.columns: merged[col] /= 1000
     merged['sum_grid_power'] = merged.get('sensor.fronius_grid_power', 0).fillna(0) + merged.get('sensor.goodwe_grid_power', 0).fillna(0)
 
 filtered = pd.DataFrame()
 if not merged.empty:
-    mask = (merged['last_changed'] >= pd.to_datetime(start_date)) & \
-           (merged['last_changed'] <= pd.to_datetime(end_date) + pd.Timedelta(days=1))
+    mask = (merged['last_changed'] >= pd.to_datetime(start_date)) & (merged['last_changed'] <= pd.to_datetime(end_date) + pd.Timedelta(days=1))
     filtered = merged.loc[mask].copy()
 
-# -----------------------------------------------------------------------------
-# 5. UI COMPONENTS (CHARTS)
-# -----------------------------------------------------------------------------
-def plot_chart(df, x, y, title, color):
-    # Dynamic styling for charts
-    bg_color = 'rgba(0,0,0,0)' # Transparent to show Card color
-    grid_color = '#404040' if st.session_state.theme == 'dark' else '#e5e5e5'
-    
+# ------------------ CHART FUNCTION ------------------
+def plot(df, x, y, title, color):
     if df.empty or y not in df.columns:
         fig = go.Figure()
-        fig.add_annotation(text="No Data Available", showarrow=False, font=dict(color=colors['text']))
+        fig.add_annotation(text="No data available", showarrow=False, font=dict(color="#666"))
     else:
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df[x], y=df[y], name=title, line=dict(color=color, width=2.5)))
-        
-        # Logic: Add Expected line only for Actual Power
-        if 'expected_power_kw' in df.columns and title == "Actual Power (kW)":
-            fig.add_trace(go.Scatter(x=df[x], y=df['expected_power_kw'], name="Expected", 
-                                     line=dict(color=colors['subtext'], width=2, dash="dot")))
-    
+        fig.add_trace(go.Scatter(x=df[x], y=df[y], name=title, line=dict(color=color, width=3)))
+        if 'expected_power_kw' in df.columns and "Actual Power" in title:
+            fig.add_trace(go.Scatter(x=df[x], y=df['expected_power_kw'], name="Expected", line=dict(color="#94a3b8", dash="dot")))
     fig.update_layout(
-        title=dict(text=title, font=dict(size=18, family="Inter", color=colors['text'])),
-        template=colors['chart_theme'],
-        paper_bgcolor=bg_color,
-        plot_bgcolor=bg_color,
-        height=450,
-        margin=dict(l=40, r=40, t=60, b=40),
-        xaxis=dict(showgrid=False, zeroline=False, color=colors['subtext']),
-        yaxis=dict(gridcolor=grid_color, gridwidth=1, color=colors['subtext']),
-        hovermode='x unified'
+        title=title, template="plotly_white",
+        height=500, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+        font=dict(color="#1d1d1f"), xaxis=dict(gridcolor="#e5e5e5"), yaxis=dict(gridcolor="#e5e5e5")
     )
     return fig
 
-# -----------------------------------------------------------------------------
-# 6. MAIN CONTENT RENDERING
-# -----------------------------------------------------------------------------
-
-st.markdown(f"<h1 class='header-title'>Southern Paarl Energy</h1>", unsafe_allow_html=True)
-st.markdown(f"<p style='color:{colors['subtext']}; margin-bottom:30px;'>Dashboard Overview • {page}</p>", unsafe_allow_html=True)
-
+# ------------------ PAGES ------------------
 if page == "Solar":
     st.markdown("<div class='energy-card'>", unsafe_allow_html=True)
-    st.plotly_chart(plot_chart(filtered, 'last_changed', 'sum_grid_power', "Actual Power (kW)", colors['primary']), use_container_width=True)
+    st.subheader("Solar Output")
+    st.plotly_chart(plot(filtered, 'last_changed', 'sum_grid_power', "Actual Power (kW)", "#10b981"), use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 elif page == "Generator":
@@ -297,28 +182,27 @@ elif page == "Generator":
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("Fuel Consumption")
-        st.plotly_chart(plot_chart(filtered, 'last_changed', 'sensor.generator_fuel_consumed', "Fuel (L)", "#ef4444"), use_container_width=True)
+        st.plotly_chart(plot(filtered, 'last_changed', 'sensor.generator_fuel_consumed', "Fuel (L)", "#ef4444"), use_container_width=True)
     with col2:
         st.subheader("Runtime")
-        st.plotly_chart(plot_chart(filtered, 'last_changed', 'sensor.generator_runtime_duration', "Runtime (h)", "#8b5cf6"), use_container_width=True)
+        st.plotly_chart(plot(filtered, 'last_changed', 'sensor.generator_runtime_duration', "Runtime (h)", "#8b5cf6"), use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 elif page == "Factory":
     st.markdown("<div class='energy-card'>", unsafe_allow_html=True)
     st.subheader("Daily Factory Consumption")
-    st.plotly_chart(plot_chart(filtered, 'last_changed', 'daily_factory_kwh', "Daily kWh", "#0ea5e9"), use_container_width=True)
+    st.plotly_chart(plot(filtered, 'last_changed', 'daily_factory_kwh', "Daily kWh", "#0ea5e9"), use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 elif page == "Kehua":
     st.markdown("<div class='energy-card'>", unsafe_allow_html=True)
     st.subheader("Kehua Internal Power")
-    st.plotly_chart(plot_chart(filtered, 'last_changed', 'sensor.kehua_internal_power', "Power (kW)", "#14b8a6"), use_container_width=True)
+    st.plotly_chart(plot(filtered, 'last_changed', 'sensor.kehua_internal_power', "Power (kW)", "#14b8a6"), use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 elif page == "Billing":
     st.markdown("<div class='energy-card'>", unsafe_allow_html=True)
     st.subheader("Billing Editor – September 2025")
-    
     try:
         resp = requests.get(BILLING_URL)
         wb = openpyxl.load_workbook(io.BytesIO(resp.content), data_only=False)
@@ -328,26 +212,29 @@ elif page == "Billing":
         ws = None
 
     if ws:
-        c1, c2, c3 = st.columns(3)
-        with c1:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**Dates**")
             b2 = ws['B2'].value or "30/09/25"
             from_date = st.date_input("From Date", value=datetime.strptime(b2, "%d/%m/%y").date())
+            b3 = ws['B3'].value or "05/11/25"
+            to_date = st.date_input("To Date", value=datetime.strptime(b3, "%d/%m/%y").date())
+        with col2:
+            st.markdown("**Main Units**")
             c7 = st.number_input("Freedom Village (C7)", value=float(ws['C7'].value or 0))
-            g21 = st.number_input("Drakenstein (G21)", value=float(ws['G21'].value or 0))
-        with c2:
-            to_date = st.date_input("To Date", value=datetime.strptime(ws['B3'].value or "05/11/25", "%d/%m/%y").date())
             c9 = st.number_input("Boerdery (C9)", value=float(ws['C9'].value or 0))
             e9 = st.number_input("Boerdery Cost (E9)", value=float(ws['E9'].value or 0))
-        with c3:
-            st.markdown("**Subunits**")
-            c10 = st.number_input("Johan & Stoor (C10)", value=float(ws['C10'].value or 0))
-            c11 = st.number_input("Pomp, Willie (C11)", value=float(ws['C11'].value or 0))
-            c12 = st.number_input("Werkers (C12)", value=float(ws['C12'].value or 0))
+        with col3:
+            st.markdown("**Account**")
+            g21 = st.number_input("Drakenstein (G21)", value=float(ws['G21'].value or 0))
 
-        st.markdown("---")
-        
-        if st.button("Apply Changes & Generate Invoice", type="primary"):
-            # Update Logic (Preserved)
+        st.markdown("### Boerdery Subunits")
+        col_sub1, col_sub2, col_sub3 = st.columns(3)
+        with col_sub1: c10 = st.number_input("Johan & Stoor (C10)", value=float(ws['C10'].value or 0))
+        with col_sub2: c11 = st.number_input("Pomp, Willie (C11)", value=float(ws['C11'].value or 0))
+        with col_sub3: c12 = st.number_input("Werkers (C12)", value=float(ws['C12'].value or 0))
+
+        if st.button("Apply Changes & Preview", type="primary"):
             ws['A1'].value = from_date.strftime("%b'%y")
             ws['B2'].value = from_date.strftime("%d/%m/%y")
             ws['B3'].value = to_date.strftime("%d/%m/%y")
@@ -372,3 +259,7 @@ elif page == "Billing":
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
     st.markdown("</div>", unsafe_allow_html=True)
+
+# ------------------ FOOTER ------------------
+st.markdown("---")
+st.markdown("<p style='text-align:center; color:#555; font-size:16px; margin:40px 0;'>Built with love by Hussein Akim • Durr Bottling • December 2025</p>", unsafe_allow_html=True)
