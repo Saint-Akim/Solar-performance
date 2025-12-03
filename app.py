@@ -1,267 +1,281 @@
-# app.py — FINAL VERSION (Streamlit + Netlify/Home Assistant Custom Card UI)
-
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+from datetime import datetime
 import requests
 import io
-import openpyxl
-from datetime import datetime, timedelta
 
-# ------------------ NETLIFY / HOME ASSISTANT CUSTOM CARD UI ------------------
-st.set_page_config(page_title="Southern Paarl Energy", layout="wide", initial_sidebar_state="expanded")
+# -----------------------------------------------------------------------------
+# 1. PAGE CONFIGURATION & THEME STATE
+# -----------------------------------------------------------------------------
+st.set_page_config(
+    page_title="Southern Paarl Energy",
+    page_icon="⚡",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-st.markdown("""
+# Initialize Session State for Theme
+if 'theme' not in st.session_state:
+    st.session_state.theme = 'light'
+
+def toggle_theme():
+    if st.session_state.theme == 'light':
+        st.session_state.theme = 'dark'
+    else:
+        st.session_state.theme = 'light'
+
+# -----------------------------------------------------------------------------
+# 2. CSS STYLING (DYNAMIC LIGHT/DARK)
+# -----------------------------------------------------------------------------
+# Define colors based on state
+if st.session_state.theme == 'dark':
+    bg_color = "#0e1117"
+    card_color = "#262730"
+    text_color = "#fafafa"
+    sidebar_bg = "#161b22"
+    border_color = "rgba(255,255,255,0.1)"
+    chart_template = "plotly_dark"
+    shadow = "0 4px 20px rgba(0,0,0,0.5)"
+    title_gradient = "linear-gradient(90deg, #00D4FF, #00FF88)"
+else:
+    bg_color = "#f8f9fb"
+    card_color = "#ffffff"
+    text_color = "#1d1d1f"
+    sidebar_bg = "#ffffff"
+    border_color = "#e8e8e8"
+    chart_template = "plotly_white"
+    shadow = "0 8px 30px rgba(0,0,0,0.08)"
+    title_gradient = "linear-gradient(90deg, #007AFF, #00C853)"
+
+st.markdown(f"""
 <style>
-    /* Netlify + Mushroom Cards + Home Assistant Custom Card Design */
-    .stApp {background: #0f0f0f !important;}
-    [data-testid="stAppViewContainer"] > .main {background: transparent !important;}
-    [data-testid="stSidebar"] {background: rgba(15,15,15,0.95) !important; backdrop-filter: blur(20px);}
+    /* Main Background */
+    .stApp {{
+        background-color: {bg_color} !important;
+    }}
     
-    /* Cards - Mushroom Card style */
-    .energy-card {
-        background: rgba(30,30,30,0.85) !important;
-        border-radius: 24px !important;
-        padding: 28px !important;
-        margin: 20px 0 !important;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.6) !important;
-        border: 1px solid rgba(255,255,255,0.08) !important;
-        backdrop-filter: blur(20px);
-        transition: all 0.3s ease !important;
-    }
-    .energy-card:hover {
-        transform: translateY(-4px) !important;
-        box-shadow: 0 12px 40px rgba(0,0,0,0.7) !important;
-    }
+    /* Sidebar Background */
+    [data-testid="stSidebar"] {{
+        background-color: {sidebar_bg} !important;
+        border-right: 1px solid {border_color} !important;
+    }}
     
-    /* Header */
-    .header-title {
-        font-size: 52px !important;
+    /* Card Style */
+    .energy-card {{
+        background-color: {card_color} !important;
+        border-radius: 20px !important;
+        padding: 24px !important;
+        margin-bottom: 20px !important;
+        box-shadow: {shadow} !important;
+        border: 1px solid {border_color} !important;
+    }}
+    
+    /* Typography */
+    h1, h2, h3, p, div, span, label {{
+        color: {text_color} !important;
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif !important;
+    }}
+    
+    /* Header Gradient */
+    .header-title {{
+        font-size: 42px !important;
         font-weight: 800 !important;
-        background: linear-gradient(90deg, #00D4FF, #00FF88) !important;
+        background: {title_gradient} !important;
         -webkit-background-clip: text !important;
         -webkit-text-fill-color: transparent !important;
         text-align: center !important;
-        margin: 40px 0 10px 0 !important;
-        text-shadow: 0 4px 20px rgba(0,212,255,0.3) !important;
-    }
+        margin-top: 20px !important;
+    }}
     
-    /* Buttons */
-    .stButton > button {
-        background: linear-gradient(90deg, #00D4FF, #00FF88) !important;
-        color: black !important;
-        border-radius: 16px !important;
-        height: 56px !important;
+    /* Metrics */
+    .metric-value {{
+        font-size: 32px !important;
         font-weight: 700 !important;
-        font-size: 16px !important;
-        border: none !important;
-        box-shadow: 0 4px 20px rgba(0,212,255,0.4) !important;
-        transition: all 0.3s !important;
-    }
-    .stButton > button:hover {
-        transform: translateY(-3px) !important;
-        box-shadow: 0 8px 30px rgba(0,255,136,0.5) !important;
-    }
-    
-    /* Text */
-    h1, h2, h3, p, div, span, label {color: white !important;}
-    .stMarkdown {color: #e0e0e0 !important;}
+        color: {text_color} !important;
+    }}
+    .metric-label {{
+        font-size: 14px !important;
+        color: #888 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 1px !important;
+    }}
+
 </style>
 """, unsafe_allow_html=True)
 
-# ------------------ HEADER ------------------
-st.markdown("<h1 class='header-title'>Southern Paarl Energy</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align:center; color:#aaa; font-size:20px; margin-bottom:40px;'>Solar • Generator • Factory • Billing Dashboard</p>", unsafe_allow_html=True)
+# -----------------------------------------------------------------------------
+# 3. HELPER FUNCTIONS (DATA LOADING)
+# -----------------------------------------------------------------------------
+@st.cache_data(ttl=300) # Cache for 5 minutes
+def load_data(url):
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        return pd.read_csv(io.StringIO(response.text))
+    except Exception as e:
+        st.error(f"Error loading data: {e}")
+        return pd.DataFrame()
 
-# ------------------ SIDEBAR (MATCHING NETLIFY UI) ------------------
-with st.sidebar:
-    st.markdown("""
-    <div style="text-align:center; padding:30px 0;">
-        <div style="width:80px; height:80px; background:linear-gradient(135deg,#00D4FF,#00FF88); border-radius:50%; margin:0 auto 20px; display:flex; align-items:center; justify-content:center; color:black; font-weight:bold; font-size:32px; box-shadow:0 8px 30px rgba(0,212,255,0.4);">
-            HA
-        </div>
-        <div style="font-weight:700; font-size:24px; color:white;">Hussein Akim</div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("### Configuration")
-    st.markdown("**GTI Factor**"); gti_factor = st.slider("", 0.50, 1.50, 1.00, 0.01)
-    st.markdown("**Performance Ratio**"); pr_ratio = st.slider("", 0.50, 1.00, 0.80, 0.01)
-    st.markdown("**Cost per kWh (ZAR)**"); cost_per_unit = st.number_input("", 0.0, 10.0, 2.98, 0.01)
-    
-    st.markdown("**Date Range**")
-    col1, col2 = st.columns(2)
-    with col1: st.markdown("**From**"); start_date = st.date_input("", datetime(2025, 5, 1))
-    with col2: st.markdown("**To**"); end_date = st.date_input("", datetime(2025, 5, 31))
-    
-    st.markdown("---")
-    page = st.radio("Navigate", ["Solar", "Generator", "Factory", "Kehua", "Billing"], label_visibility="collapsed")
-# ------------------ DATA SOURCES ------------------
-SOLAR_URLS = [
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius-Jan.csv",
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goodwe%26Fronius_Feb.csv",
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goddwe%26Fronius_March.csv",
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe%26Fronius_April.csv",
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe%26Fronius_may.csv"
-]
-WEATHER_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/csv_-33.78116654125097_19.00166906876145_horizontal_single_axis_23_30_PT60M.csv"
+# URLs
+SOLAR_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe%26Fronius_may.csv"
 GEN_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/GEN.csv"
 FACTORY_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/FACTORY%20ELEC.csv"
 KEHUA_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/KEHUA%20INTERNAL.csv"
-BILLING_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/September%202025.xlsx"
 
-# ------------------ DATA LOADING ------------------
-@st.cache_data(show_spinner=False)
-def load_csvs(urls):
-    dfs = []
-    for url in urls:
-        try:
-            df = pd.read_csv(url)
-            if {'last_changed', 'state', 'entity_id'}.issubset(df.columns):
-                df['last_changed'] = pd.to_datetime(df['last_changed'], utc=True).dt.tz_convert('Africa/Johannesburg').dt.tz_localize(None)
-                df['state'] = pd.to_numeric(df['state'], errors='coerce').abs()
-                df['entity_id'] = df['entity_id'].str.lower().str.strip()
-                piv = df.pivot_table(index='last_changed', columns='entity_id', values='state', aggfunc='mean').reset_index()
-                dfs.append(piv)
-        except: pass
-    return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
+# -----------------------------------------------------------------------------
+# 4. SIDEBAR
+# -----------------------------------------------------------------------------
+with st.sidebar:
+    # Profile
+    st.markdown(f"""
+    <div style="text-align:center; padding:20px 0;">
+        <div style="width:70px; height:70px; background:{title_gradient}; border-radius:50%; margin:0 auto 15px; display:flex; align-items:center; justify-content:center; color:white; font-weight:bold; font-size:24px;">
+            HA
+        </div>
+        <div style="font-weight:700; font-size:20px; color:{text_color};">Hussein Akim</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-@st.cache_data(show_spinner=False)
-def load_weather(gti, pr):
-    try:
-        df = pd.read_csv(WEATHER_URL)
-        df['period_end'] = pd.to_datetime(df['period_end'], utc=True).dt.tz_convert('Africa/Johannesburg').dt.tz_localize(None)
-        df['expected_power_kw'] = df['gti'] * gti * 221.43 * pr / 1000
-        return df
-    except: return pd.DataFrame()
+    # Theme Switcher
+    st.markdown("### Appearance")
+    is_dark = st.session_state.theme == 'dark'
+    if st.toggle("Dark Mode", value=is_dark):
+        if st.session_state.theme == 'light':
+            st.session_state.theme = 'dark'
+            st.rerun()
+    else:
+        if st.session_state.theme == 'dark':
+            st.session_state.theme = 'light'
+            st.rerun()
 
-solar_df = load_csvs(SOLAR_URLS)
-weather_df = load_weather(gti_factor, pr_ratio)
-gen_df = load_csvs([GEN_URL])
-factory_df = load_csvs([FACTORY_URL])
-kehua_df = load_csvs([KEHUA_URL])
-
-# Factory daily kWh
-if not factory_df.empty and 'sensor.bottling_factory_monthkwhtotal' in factory_df.columns:
-    factory_df = factory_df.sort_values('last_changed')
-    factory_df['daily_factory_kwh'] = factory_df['sensor.bottling_factory_monthkwhtotal'].diff().fillna(0)
-
-# Merge
-all_dfs = [df for df in [solar_df, gen_df, factory_df, kehua_df, weather_df] if not df.empty]
-if all_dfs:
-    merged = all_dfs[0].copy()
-    for df in all_dfs[1:]:
-        col = 'last_changed' if 'last_changed' in df.columns else 'period_end'
-        merged = pd.merge_asof(merged.sort_values('last_changed'), df.sort_values(col),
-                               left_on='last_changed', right_on=col, direction='nearest')
-else:
-    merged = pd.DataFrame()
-
-if not merged.empty:
-    if 'sensor.fronius_grid_power' in merged.columns:
-        merged['sensor.fronius_grid_power'] /= 1000
-    if 'sensor.goodwe_grid_power' in merged.columns:
-        merged['sensor.goodwe_grid_power'] /= 1000
-    merged['sum_grid_power'] = merged.get('sensor.fronius_grid_power', 0).fillna(0) + merged.get('sensor.goodwe_grid_power', 0).fillna(0)
-
-filtered = merged[(merged['last_changed'] >= pd.to_datetime(start_date)) & 
-                  (merged['last_changed'] <= pd.to_datetime(end_date) + pd.Timedelta(days=1))]
-
-# ------------------ CHART FUNCTION ------------------
-def chart(df, x, y, title, color):
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df[x], y=df[y], name=title, line=dict(color=color)))
-    fig.update_layout(title=title, xaxis_rangeslider_visible=True, hovermode='x unified',
-                      template="simple_white", height=500)
-    return fig
-
-# ------------------ PAGES ------------------
-if page == "Solar Performance":
-    st.header("Solar Performance")
-    fig = chart(filtered, 'last_changed', 'sum_grid_power', "Actual Power (kW)", "#00C853")
-    if 'expected_power_kw' in filtered.columns:
-        fig.add_trace(go.Scatter(x=filtered['last_changed'], y=filtered['expected_power_kw'],
-                                 name="Expected Power", line=dict(color="#007aff", dash="dot")))
-    st.plotly_chart(fig, use_container_width=True)
-
-elif page == "Generator":
-    st.header("Generator")
-    if 'sensor.generator_fuel_consumed' in filtered.columns:
-        st.plotly_chart(chart(filtered, 'last_changed', 'sensor.generator_fuel_consumed', "Fuel Consumed (L)", "red"), use_container_width=True)
-    if 'sensor.generator_runtime_duration' in filtered.columns:
-        st.plotly_chart(chart(filtered, 'last_changed', 'sensor.generator_runtime_duration', "Runtime (hours)", "purple"), use_container_width=True)
-
-elif page == "Factory":
-    st.header("Factory Daily Consumption")
-    if 'daily_factory_kwh' in filtered.columns:
-        st.plotly_chart(chart(filtered, 'last_changed', 'daily_factory_kwh', "Daily Factory kWh", "#1E88E5"), use_container_width=True)
-
-elif page == "Kehua":
-    st.header("Kehua Internal Power")
-    if 'sensor.kehua_internal_power' in filtered.columns:
-        st.plotly_chart(chart(filtered, 'last_changed', 'sensor.kehua_internal_power', "Kehua Power (kW)", "#00ACC1"), use_container_width=True)
-
-elif page == "Billing":
-    st.header("Billing Editor – September 2025")
+    st.markdown("---")
     
-    response = requests.get(BILLING_URL)
-    wb = openpyxl.load_workbook(io.BytesIO(response.content), data_only=False)
-    ws = wb.active
-
+    # Inputs (FIXED LABELS)
+    st.markdown("### Settings")
+    gti_factor = st.slider("GTI Factor", 0.50, 1.50, 1.00, 0.01)
+    pr_ratio = st.slider("Performance Ratio", 0.50, 1.00, 0.80, 0.01)
+    cost_per_unit = st.number_input("Cost per kWh (ZAR)", min_value=0.0, value=2.98, step=0.01)
+    
+    st.markdown("### Date Filter")
     col1, col2 = st.columns(2)
     with col1:
-        b2 = ws['B2'].value or "30/09/25"
-        from_date = st.date_input("Date From", value=datetime.strptime(b2, "%d/%m/%y").date())
-        to_date = st.date_input("Date To", value=datetime.strptime(ws['B3'].value or "05/11/25", "%d/%m/%y").date())
-        days = (to_date - from_date).days
-
+        start_date = st.date_input("Start Date", datetime(2025, 5, 1))
     with col2:
-        c7 = st.number_input("Freedom Village Units (C7)", value=float(ws['C7'].value or 0))
-        c9 = st.number_input("Boerdery Units (C9)", value=float(ws['C9'].value or 0))
-        e9 = st.number_input("Boerdery Cost (E9)", value=float(ws['E9'].value or 0))
-        g21 = st.number_input("Drakenstein Account (G21)", value=float(ws['G21'].value or 0))
+        end_date = st.date_input("End Date", datetime(2025, 5, 31))
 
-    st.subheader("Boerdery Subunits")
-    c10 = st.number_input("Johan & Stoor (C10)", value=float(ws['C10'].value or 0))
-    c11 = st.number_input("Pomp, Willie, Gaste, Comp (C11)", value=float(ws['C11'].value or 0))
-    c12 = st.number_input("Werkers (C12)", value=float(ws['C12'].value or 0))
+    st.markdown("---")
+    page = st.radio("Navigation", ["Solar", "Generator", "Factory", "Kehua", "Billing"], label_visibility="collapsed")
 
-    if st.button("Apply & Preview"):
-        ws['A1'].value = from_date.strftime("%b'%y")
-        ws['B2'].value = from_date.strftime("%d/%m/%y")
-        ws['B3'].value = to_date.strftime("%d/%m/%y")
-        ws['B4'].value = days
-        ws['C7'].value = c7
-        ws['C9'].value = c9
-        ws['C10'].value = c10
-        ws['C11'].value = c11
-        ws['C12'].value = c12
-        ws['E7'] = '=C7*D7'          # Real formula
-        ws['E9'].value = e9
-        ws['G21'].value = g21
+# -----------------------------------------------------------------------------
+# 5. MAIN CONTENT
+# -----------------------------------------------------------------------------
+st.markdown("<h1 class='header-title'>Southern Paarl Energy</h1>", unsafe_allow_html=True)
+st.markdown(f"<p style='text-align:center; color:#888; font-size:18px; margin-bottom:30px;'>Dashboard • {page}</p>", unsafe_allow_html=True)
 
-        buf = io.BytesIO()
-        wb.save(buf)
-        buf.seek(0)
-        st.session_state.edited = buf.getvalue()
-        st.dataframe(pd.read_excel(buf, header=None), use_container_width=True)
-
-    if 'edited' in st.session_state:
-        st.download_button(
-            "Download Edited September 2025.xlsx",
-            st.session_state.edited,
-            file_name=f"September 2025 - {from_date.strftime('%Y-%m-%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+# --- SOLAR TAB ---
 if page == "Solar":
+    df = load_data(SOLAR_URL)
+    if not df.empty:
+        # Process
+        df['last_changed'] = pd.to_datetime(df['last_changed'])
+        mask = (df['last_changed'].dt.date >= start_date) & (df['last_changed'].dt.date <= end_date)
+        df_filtered = df.loc[mask].copy()
+        
+        df_filtered['total_power_kw'] = (df_filtered['sensor.goodwe_grid_power'].fillna(0) + df_filtered['sensor.fronius_grid_power'].fillna(0)) / 1000
+
+        # KPI Cards
+        avg_power = df_filtered['total_power_kw'].mean()
+        max_power = df_filtered['total_power_kw'].max()
+        
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown(f"""<div class='energy-card'><div class='metric-label'>Avg Output</div><div class='metric-value'>{avg_power:.2f} kW</div></div>""", unsafe_allow_html=True)
+        with c2:
+            st.markdown(f"""<div class='energy-card'><div class='metric-label'>Max Peak</div><div class='metric-value'>{max_power:.2f} kW</div></div>""", unsafe_allow_html=True)
+        with c3:
+            cost = (df_filtered['total_power_kw'].sum() / 60) * cost_per_unit # Approximation
+            st.markdown(f"""<div class='energy-card'><div class='metric-label'>Est. Savings</div><div class='metric-value'>R {cost:.2f}</div></div>""", unsafe_allow_html=True)
+
+        # Chart
+        st.markdown("<div class='energy-card'>", unsafe_allow_html=True)
+        st.subheader("Solar Output (Goodwe + Fronius)")
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=df_filtered['last_changed'], y=df_filtered['total_power_kw'], 
+                                 mode='lines', name='Total kW', line=dict(color='#00C853', width=2)))
+        fig.update_layout(template=chart_template, height=450, margin=dict(l=20, r=20, t=40, b=20))
+        st.plotly_chart(fig, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# --- GENERATOR TAB ---
+elif page == "Generator":
+    df = load_data(GEN_URL)
+    if not df.empty:
+        df['last_changed'] = pd.to_datetime(df['last_changed'])
+        mask = (df['last_changed'].dt.date >= start_date) & (df['last_changed'].dt.date <= end_date)
+        df_filtered = df.loc[mask].copy()
+
+        st.markdown("<div class='energy-card'>", unsafe_allow_html=True)
+        st.subheader("Fuel Consumption")
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=df_filtered['last_changed'], y=df_filtered['sensor.generator_fuel_consumed'], 
+                                 line=dict(color='#FF3B30', width=2), name="Fuel (L)"))
+        fig.update_layout(template=chart_template, height=400)
+        st.plotly_chart(fig, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# --- FACTORY TAB ---
+elif page == "Factory":
+    df = load_data(FACTORY_URL)
+    if not df.empty:
+        df['last_changed'] = pd.to_datetime(df['last_changed'])
+        mask = (df['last_changed'].dt.date >= start_date) & (df['last_changed'].dt.date <= end_date)
+        df_filtered = df.loc[mask].copy()
+        
+        # Calculate daily usage from cumulative
+        df_filtered['daily_usage'] = df_filtered['sensor.bottling_factory_monthkwhtotal'].diff().fillna(0)
+        df_filtered = df_filtered[df_filtered['daily_usage'] >= 0] # Remove reset spikes
+
+        st.markdown("<div class='energy-card'>", unsafe_allow_html=True)
+        st.subheader("Factory Consumption (Daily kWh)")
+        fig = go.Figure()
+        fig.add_trace(go.Bar(x=df_filtered['last_changed'], y=df_filtered['daily_usage'], 
+                             marker_color='#007AFF', name="kWh"))
+        fig.update_layout(template=chart_template, height=500)
+        st.plotly_chart(fig, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# --- KEHUA TAB ---
+elif page == "Kehua":
+    df = load_data(KEHUA_URL)
+    if not df.empty:
+        df['last_changed'] = pd.to_datetime(df['last_changed'])
+        mask = (df['last_changed'].dt.date >= start_date) & (df['last_changed'].dt.date <= end_date)
+        df_filtered = df.loc[mask].copy()
+        
+        st.markdown("<div class='energy-card'>", unsafe_allow_html=True)
+        st.subheader("Internal Power Load")
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=df_filtered['last_changed'], y=df_filtered['sensor.kehua_internal_power']/1000, 
+                                 line=dict(color='#5856D6', width=2), fill='tozeroy', name="kW"))
+        fig.update_layout(template=chart_template, height=500)
+        st.plotly_chart(fig, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# --- BILLING TAB ---
+elif page == "Billing":
     st.markdown("<div class='energy-card'>", unsafe_allow_html=True)
-    st.subheader("Solar Output")
-    # your chart code
-    st.plotly_chart(fig, use_container_width=True)
+    st.subheader("Billing Editor")
+    # Using a placeholder Google Sheet - replace 'src' with your actual embed link if you have it
+    # To get your link: Open Sheet -> File -> Share -> Publish to Web -> Embed
+    st.markdown("""
+        <iframe src="https://docs.google.com/spreadsheets/d/e/2PACX-1vR_sO-mIXXCqgVwS5a4iJjK6l-gG7nFk/pubhtml?widget=true&headers=false" 
+        style="width:100%; height:600px; border-radius:12px; border:none;"></iframe>
+    """, unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ... repeat for all pages ...
-
-# ------------------ FOOTER ------------------
+# -----------------------------------------------------------------------------
+# 6. FOOTER
+# -----------------------------------------------------------------------------
 st.markdown("---")
-st.markdown("<p style='text-align:center; color:#888; font-size:16px; margin:40px 0;'>Built with love by Hussein Akim • Durr Bottling • December 2025</p>", unsafe_allow_html=True)
+st.markdown(f"<div style='text-align:center; color:#888; padding:20px;'>   • Durr Bottling • December 2025</div>", unsafe_allow_html=True)
