@@ -22,52 +22,48 @@ if 'theme' not in st.session_state:
     st.session_state.theme = 'light'
 
 # -----------------------------------------------------------------------------
-# 2. ADVANCED CSS & THEME ENGINE
+# 2. "GITHUB ENTERPRISE" DESIGN SYSTEM (CSS)
 # -----------------------------------------------------------------------------
-# Theme Variables
+# Exact GitHub Color Palette
 if st.session_state.theme == 'dark':
     theme = {
-        "bg": "#0e1117",
+        "bg": "#0d1117",            # GitHub Dark Dimmed
         "sidebar": "#161b22",
-        "card": "#1e212b",
-        "text": "#ffffff",
-        "subtext": "#9ca3af",
-        "border": "1px solid rgba(255, 255, 255, 0.1)",
-        "accent": "#00C853",
-        "input": "rgba(255,255,255,0.05)",
-        "chart_theme": "plotly_dark"
+        "card": "#161b22",
+        "text": "#c9d1d9",
+        "subtext": "#8b949e",
+        "border": "1px solid #30363d",
+        "accent": "#238636",        # GitHub Green
+        "input": "#0d1117",
+        "chart_theme": "plotly_dark",
+        "grid": "#30363d"
     }
 else:
     theme = {
-        "bg": "#f3f4f6",
-        "sidebar": "#ffffff",
+        "bg": "#ffffff",
+        "sidebar": "#f6f8fa",       # GitHub Light Grey
         "card": "#ffffff",
-        "text": "#111827",
-        "subtext": "#6b7280",
-        "border": "1px solid rgba(0,0,0,0.06)",
-        "accent": "#2563eb",
-        "input": "#ffffff",
-        "chart_theme": "plotly_white"
+        "text": "#24292f",
+        "subtext": "#57606a",
+        "border": "1px solid #d0d7de",
+        "accent": "#0969da",        # GitHub Blue
+        "input": "#f6f8fa",
+        "chart_theme": "plotly_white",
+        "grid": "#d0d7de"
     }
 
 st.markdown(f"""
 <style>
+    /* 1. TYPOGRAPHY */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
-    /* BASE STYLES */
+    
     .stApp {{
         background-color: {theme['bg']};
-        font-family: 'Inter', sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
         color: {theme['text']};
     }}
-    
-    /* REMOVE PADDING */
-    .block-container {{
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-    }}
 
-    /* SIDEBAR */
+    /* 2. SIDEBAR */
     [data-testid="stSidebar"] {{
         background-color: {theme['sidebar']};
         border-right: {theme['border']};
@@ -76,80 +72,64 @@ st.markdown(f"""
         color: {theme['text']} !important;
     }}
 
-    /* CARDS */
+    /* 3. CARDS (GitHub Style Box) */
     .metric-card {{
         background-color: {theme['card']};
         border: {theme['border']};
-        border-radius: 12px;
-        padding: 20px;
-        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
-        display: flex;
-        flex-direction: column;
-        height: 100%;
-        transition: transform 0.2s;
+        border-radius: 6px;
+        padding: 24px;
+        box-shadow: 0 1px 0 rgba(27,31,36,0.04);
+        transition: all 0.2s ease-in-out;
     }}
     .metric-card:hover {{
-        transform: translateY(-2px);
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-    }}
-    
-    /* ICONS IN CARDS */
-    .icon-box {{
-        width: 40px;
-        height: 40px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 20px;
-        margin-bottom: 12px;
+        border-color: {theme['subtext']};
+        box-shadow: 0 4px 8px rgba(0,0,0,0.05);
     }}
 
-    /* TYPOGRAPHY */
+    /* 4. METRICS */
     .metric-label {{
-        font-size: 13px;
+        font-size: 14px;
         font-weight: 600;
-        text-transform: uppercase;
         color: {theme['subtext']};
-        margin-bottom: 4px;
+        margin-bottom: 8px;
     }}
     .metric-value {{
         font-size: 28px;
-        font-weight: 700;
+        font-weight: 600;
         color: {theme['text']};
         letter-spacing: -0.5px;
     }}
 
-    /* INPUTS (Fixed Visibility) */
+    /* 5. INPUTS (High Visibility) */
     .stDateInput input, .stNumberInput input, .stTextInput input, .stSelectbox div {{
         background-color: {theme['input']} !important;
         border: {theme['border']} !important;
         color: {theme['text']} !important;
-        border-radius: 8px !important;
+        border-radius: 6px !important;
+        font-family: inherit !important;
     }}
 
-    /* TABS (Segmented Control Look) */
+    /* 6. TABS (Underline Style) */
     .stTabs [data-baseweb="tab-list"] {{
-        gap: 8px;
+        gap: 20px;
         background-color: transparent;
-        padding-bottom: 10px;
+        border-bottom: {theme['border']};
+        padding-bottom: 0px;
     }}
     .stTabs [data-baseweb="tab"] {{
-        background-color: {theme['card']};
-        border: {theme['border']};
-        border-radius: 8px;
-        padding: 8px 20px;
-        height: auto;
-        font-weight: 600;
+        background-color: transparent;
+        border: none;
         color: {theme['subtext']};
+        font-weight: 500;
+        padding-bottom: 12px;
     }}
     .stTabs [data-baseweb="tab"][aria-selected="true"] {{
-        background-color: {theme['accent']};
-        color: white !important;
-        border-color: {theme['accent']};
+        color: {theme['text']};
+        border-bottom: 2px solid {theme['accent']};
+        font-weight: 600;
     }}
 
-    /* HIDE JUNK */
+    /* UTILS */
     #MainMenu {{visibility: hidden;}}
     footer {{visibility: hidden;}}
     header {{visibility: hidden;}}
@@ -157,7 +137,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 3. FAST DATA LOADING
+# 3. HIGH-PERFORMANCE DATA ENGINE
 # -----------------------------------------------------------------------------
 TOTAL_CAPACITY_KW = 221.43
 TZ = 'Africa/Johannesburg'
@@ -175,7 +155,7 @@ FACTORY_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/ma
 KEHUA_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/KEHUA%20INTERNAL.csv"
 BILLING_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/September%202025.xlsx"
 
-def fetch_url(url):
+def fetch_clean_data(url):
     try:
         df = pd.read_csv(url)
         if {'last_changed', 'state', 'entity_id'}.issubset(df.columns):
@@ -189,58 +169,98 @@ def fetch_url(url):
 @st.cache_data(show_spinner=False)
 def load_data_parallel():
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        s_futures = [executor.submit(fetch_url, u) for u in SOLAR_URLS]
-        gen_fut = executor.submit(fetch_url, GEN_URL)
-        fac_fut = executor.submit(fetch_url, FACTORY_URL)
-        keh_fut = executor.submit(fetch_url, KEHUA_URL)
+        s_futures = [executor.submit(fetch_clean_data, u) for u in SOLAR_URLS]
+        gen_fut = executor.submit(fetch_clean_data, GEN_URL)
+        fac_fut = executor.submit(fetch_clean_data, FACTORY_URL)
+        keh_fut = executor.submit(fetch_clean_data, KEHUA_URL)
+        
         try:
             w_df = pd.read_csv(WEATHER_URL)
             w_df['period_end'] = pd.to_datetime(w_df['period_end'], utc=True).dt.tz_convert(TZ).dt.tz_localize(None)
         except: w_df = pd.DataFrame()
+
         s_dfs = [f.result() for f in s_futures if not f.result().empty]
         solar = pd.concat(s_dfs, ignore_index=True) if s_dfs else pd.DataFrame()
         return solar, gen_fut.result(), fac_fut.result(), keh_fut.result(), w_df
 
 # -----------------------------------------------------------------------------
-# 4. SIDEBAR
+# 4. SIDEBAR & INTERACTION
 # -----------------------------------------------------------------------------
 with st.sidebar:
     st.markdown(f"""
-    <div style="padding: 10px 0 20px 0;">
-        <h2 style="margin:0; font-size:20px; color:{theme['text']};">Durr Bottling</h2>
-        <p style="margin:0; font-size:12px; color:{theme['subtext']};">Energy Management System</p>
+    <div style="padding: 10px 0 20px 0; display:flex; align-items:center; gap:12px;">
+        <div style="width:40px; height:40px; background:{theme['accent']}; border-radius:50%; color:white; display:flex; justify-content:center; align-items:center; font-weight:bold; font-size:18px;">DB</div>
+        <div>
+            <div style="font-weight:600; font-size:16px;">Durr Bottling</div>
+            <div style="font-size:12px; color:{theme['subtext']};">Analytics Pro</div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
-
-    # Theme Toggle
+    
+    # Mode Selection with Toast
+    st.markdown("### Interface")
     col_t1, col_t2 = st.columns([0.7, 0.3])
     with col_t1: st.write("Dark Mode")
     with col_t2: 
         if st.toggle("Theme", value=(st.session_state.theme == 'dark'), label_visibility="collapsed"):
             if st.session_state.theme == 'light':
                 st.session_state.theme = 'dark'
+                st.toast("Switched to Dark Mode", icon="🌑")
                 st.rerun()
         else:
             if st.session_state.theme == 'dark':
                 st.session_state.theme = 'light'
+                st.toast("Switched to Light Mode", icon="☀️")
                 st.rerun()
 
+    st.markdown("### Data Source")
+    data_source = st.radio("Source", ["GitHub Cloud (Auto)", "Manual Upload"], label_visibility="collapsed")
+
+    if data_source == "Manual Upload":
+        st.info("Upload CSV files manually")
+        up_solar = st.file_uploader("Solar", accept_multiple_files=True)
+        up_gen = st.file_uploader("Generator")
+        up_fac = st.file_uploader("Factory")
+        up_keh = st.file_uploader("Kehua")
+        up_wea = st.file_uploader("Weather")
+
     st.markdown("---")
-    st.markdown("### ⚙️ Parameters")
-    gti_factor = st.slider("GTI Factor", 0.50, 1.50, 1.00, 0.01)
-    pr_ratio = st.slider("PR Ratio", 0.50, 1.00, 0.80, 0.01)
-    cost_per_unit = st.number_input("Cost (ZAR/kWh)", min_value=0.0, value=2.98, step=0.01)
+    st.markdown("### Parameters")
+    gti_factor = st.slider("GTI Factor", 0.5, 1.5, 1.00, 0.01)
+    pr_ratio = st.slider("PR Ratio", 0.5, 1.0, 0.80, 0.01)
+    cost_per_unit = st.number_input("Cost (R/kWh)", value=2.98, step=0.01)
     
-    st.markdown("### 📅 Date Filter")
+    st.markdown("### Date Range")
     start_date = st.date_input("From", datetime(2025, 5, 1))
     end_date = st.date_input("To", datetime(2025, 5, 31))
 
 # -----------------------------------------------------------------------------
-# 5. LOGIC & PROCESSING
+# 5. DATA LOGIC & MERGING
 # -----------------------------------------------------------------------------
-with st.spinner("Synchronizing..."):
-    solar_df, gen_df, factory_df, kehua_df, weather_df = load_data_parallel()
+solar_df = gen_df = factory_df = kehua_df = weather_df = pd.DataFrame()
 
+if data_source == "GitHub Cloud (Auto)":
+    with st.spinner("Connecting to Repository..."):
+        solar_df, gen_df, factory_df, kehua_df, weather_df = load_data_parallel()
+else:
+    # Manual Logic
+    def process_manual(df):
+        if {'last_changed', 'state', 'entity_id'}.issubset(df.columns):
+            df['last_changed'] = pd.to_datetime(df['last_changed'], utc=True).dt.tz_convert(TZ).dt.tz_localize(None)
+            df['state'] = pd.to_numeric(df['state'], errors='coerce').abs()
+            return df.pivot_table(index='last_changed', columns='entity_id', values='state', aggfunc='mean').reset_index()
+        elif 'period_end' in df.columns:
+            df['period_end'] = pd.to_datetime(df['period_end'], utc=True).dt.tz_convert(TZ).dt.tz_localize(None)
+            return df
+        return df
+
+    if up_solar: solar_df = pd.concat([process_manual(pd.read_csv(f)) for f in up_solar], ignore_index=True)
+    if up_gen: gen_df = process_manual(pd.read_csv(up_gen))
+    if up_fac: factory_df = process_manual(pd.read_csv(up_fac))
+    if up_keh: kehua_df = process_manual(pd.read_csv(up_keh))
+    if up_wea: weather_df = process_manual(pd.read_csv(up_wea))
+
+# Logic: Calcs
 if not weather_df.empty:
     weather_df['expected_power_kw'] = weather_df['gti'] * gti_factor * TOTAL_CAPACITY_KW * pr_ratio / 1000
 
@@ -248,148 +268,180 @@ if not factory_df.empty and 'sensor.bottling_factory_monthkwhtotal' in factory_d
     factory_df = factory_df.sort_values('last_changed')
     factory_df['daily_factory_kwh'] = factory_df['sensor.bottling_factory_monthkwhtotal'].diff().fillna(0)
 
+# Logic: Merge
 all_dfs = [df for df in [solar_df, gen_df, factory_df, kehua_df, weather_df] if not df.empty]
 merged = pd.DataFrame()
 if all_dfs:
     merged = all_dfs[0].copy()
     for df in all_dfs[1:]:
-        col = 'last_changed' if 'last_changed' in df.columns else 'period_end'
-        merged = pd.merge_asof(merged.sort_values('last_changed'), df.sort_values(col),
-                               left_on='last_changed', right_on=col, direction='nearest')
+        t_col = 'last_changed' if 'last_changed' in df.columns else 'period_end'
+        m_col = 'last_changed' if 'last_changed' in merged.columns else 'period_end'
+        merged = pd.merge_asof(merged.sort_values(m_col), df.sort_values(t_col), left_on=m_col, right_on=t_col, direction='nearest')
 
 if not merged.empty:
     if 'sensor.fronius_grid_power' in merged.columns: merged['sensor.fronius_grid_power'] /= 1000
     if 'sensor.goodwe_grid_power' in merged.columns: merged['sensor.goodwe_grid_power'] /= 1000
-    merged['sum_grid_power'] = merged.get('sensor.fronius_grid_power', 0).fillna(0) + merged.get('sensor.goodwe_grid_power', 0).fillna(0)
+    merged['total_solar'] = merged.get('sensor.fronius_grid_power', 0).fillna(0) + merged.get('sensor.goodwe_grid_power', 0).fillna(0)
 
+# Filter
 filtered = pd.DataFrame()
 if not merged.empty:
-    mask = (merged['last_changed'] >= pd.to_datetime(start_date)) & \
-           (merged['last_changed'] <= pd.to_datetime(end_date) + pd.Timedelta(days=1))
+    time_col = 'last_changed' if 'last_changed' in merged.columns else 'period_end'
+    mask = (merged[time_col] >= pd.to_datetime(start_date)) & (merged[time_col] <= pd.to_datetime(end_date) + pd.Timedelta(days=1))
     filtered = merged.loc[mask].copy()
 
 # -----------------------------------------------------------------------------
-# 6. DASHBOARD UI
+# 6. UI RENDER
 # -----------------------------------------------------------------------------
-st.markdown(f"<h1 style='margin-bottom:10px;'>Southern Paarl Energy</h1>", unsafe_allow_html=True)
-st.markdown(f"<p style='color:{theme['subtext']}; margin-bottom:30px;'>Real-time production and consumption overview.</p>", unsafe_allow_html=True)
+st.title("Southern Paarl Energy")
 
 if not filtered.empty:
-    # 6A. METRIC CARDS WITH ICONS
-    avg_val = filtered['sum_grid_power'].mean() if 'sum_grid_power' in filtered else 0
-    max_val = filtered['sum_grid_power'].max() if 'sum_grid_power' in filtered else 0
-    savings = (filtered['sum_grid_power'].sum() / 60) * cost_per_unit if 'sum_grid_power' in filtered else 0
-    factory_load = filtered['daily_factory_kwh'].sum() if 'daily_factory_kwh' in filtered else 0
-    
+    # 6A. METRICS
     k1, k2, k3, k4 = st.columns(4)
-    
-    def metric_box(col, label, value, icon, icon_bg):
+    solar_sum = filtered['total_solar'].mean() if 'total_solar' in filtered else 0
+    savings = (filtered['total_solar'].sum() / 60) * cost_per_unit if 'total_solar' in filtered else 0
+    fuel = filtered['sensor.generator_fuel_consumed'].max() - filtered['sensor.generator_fuel_consumed'].min() if 'sensor.generator_fuel_consumed' in filtered else 0
+    factory_kwh = filtered['daily_factory_kwh'].sum() if 'daily_factory_kwh' in filtered else 0
+
+    def metric(col, label, val, sub):
         col.markdown(f"""
         <div class="metric-card">
-            <div class="icon-box" style="background-color: {icon_bg}; color: white;">{icon}</div>
             <div class="metric-label">{label}</div>
-            <div class="metric-value">{value}</div>
+            <div class="metric-value">{val}</div>
+            <div style="font-size:12px; color:{theme['subtext']}; margin-top:4px;">{sub}</div>
         </div>
         """, unsafe_allow_html=True)
 
-    metric_box(k1, "Est. Savings", f"R {savings:,.0f}", "💰", "#10B981")
-    metric_box(k2, "Avg Solar", f"{avg_val:.1f} kW", "☀️", "#F59E0B")
-    metric_box(k3, "Factory Load", f"{factory_load:,.0f} kWh", "🏭", "#3B82F6")
-    metric_box(k4, "Peak Output", f"{max_val:.1f} kW", "⚡", "#6366F1")
+    metric(k1, "Est. Savings", f"R {savings:,.0f}", "Current Period")
+    metric(k2, "Avg Solar", f"{solar_sum:.1f} kW", "Generation")
+    metric(k3, "Factory Load", f"{factory_kwh:,.0f} kWh", "Consumption")
+    metric(k4, "Gen. Fuel", f"{fuel:.0f} L", "Diesel Used")
 
-st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
 
-# 6B. CHARTING FUNCTION
-def clean_chart(df, x, y, title, color):
-    if df.empty or y not in df.columns: return st.info("No data available.")
-    
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df[x], y=df[y], name="Actual", line=dict(color=color, width=3), fill='tozeroy', fillcolor=f"rgba{color[3:-1]}, 0.1)"))
-    
-    if 'expected_power_kw' in df.columns and "Solar" in title:
-        fig.add_trace(go.Scatter(x=df[x], y=df['expected_power_kw'], name="Expected", line=dict(color="#A0A0A0", width=2, dash="dot")))
-
-    fig.update_layout(
-        template=theme['chart_theme'],
-        title=dict(text=title, font=dict(size=18, family="Inter", color=theme['text'])),
-        height=450,
-        margin=dict(l=0, r=0, t=50, b=0),
-        xaxis=dict(showgrid=False, color=theme['subtext']),
-        yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.1)", color=theme['subtext']),
-        hovermode="x unified",
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)'
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-# 6C. TABS
-t1, t2, t3, t4, t5 = st.tabs(["Solar Analysis", "Generator", "Factory Load", "Kehua Power", "Billing Invoices"])
-
-with t1:
-    st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
-    clean_chart(filtered, 'last_changed', 'sum_grid_power', "Solar Output vs Expected (kW)", "#F59E0B")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-with t2:
-    st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
-    c1, c2 = st.columns(2)
-    with c1: clean_chart(filtered, 'last_changed', 'sensor.generator_fuel_consumed', "Fuel Consumption (L)", "#EF4444")
-    with c2: clean_chart(filtered, 'last_changed', 'sensor.generator_runtime_duration', "Runtime Duration (h)", "#8B5CF6")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-with t3:
-    st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
-    clean_chart(filtered, 'last_changed', 'daily_factory_kwh', "Daily Factory Consumption (kWh)", "#3B82F6")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-with t4:
-    st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
-    clean_chart(filtered, 'last_changed', 'sensor.kehua_internal_power', "Kehua Internal Load (kW)", "#06B6D4")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-with t5:
-    st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
-    st.subheader("🧾 Invoice Editor")
-    try:
-        resp = requests.get(BILLING_URL)
-        wb = openpyxl.load_workbook(io.BytesIO(resp.content), data_only=False)
-        ws = wb.active
+    # 6B. THE "BEST CHART EXPERIENCE EVER" FUNCTION
+    def pro_chart(df, x, y, title, color):
+        if df.empty or y not in df.columns: return st.info("No data.")
         
-        c1, c2 = st.columns(2)
-        with c1:
-            b2 = ws['B2'].value or "30/09/25"
-            from_date = st.date_input("From Date", value=datetime.strptime(b2, "%d/%m/%y").date())
-            v_c7 = st.number_input("Freedom Village (Unit 7)", value=float(ws['C7'].value or 0))
-            v_c9 = st.number_input("Boerdery (Unit 9)", value=float(ws['C9'].value or 0))
-            v_e9 = st.number_input("Boerdery Cost (R)", value=float(ws['E9'].value or 0))
-        with c2:
-            to_date = st.date_input("To Date", value=datetime.strptime(ws['B3'].value or "05/11/25", "%d/%m/%y").date())
-            v_g21 = st.number_input("Drakenstein (G21)", value=float(ws['G21'].value or 0))
-            
-        st.markdown("**Sub-Units**")
-        s1, s2, s3 = st.columns(3)
-        with s1: v_c10 = st.number_input("Johan & Stoor", value=float(ws['C10'].value or 0))
-        with s2: v_c11 = st.number_input("Pomp & Willie", value=float(ws['C11'].value or 0))
-        with s3: v_c12 = st.number_input("Werkers", value=float(ws['C12'].value or 0))
+        fig = go.Figure()
+        
+        # Gradient Fill Area
+        fig.add_trace(go.Scatter(
+            x=df[x], y=df[y], 
+            mode='lines', name='Actual',
+            line=dict(color=color, width=2),
+            fill='tozeroy', 
+            fillcolor=f"rgba{color[3:-1]}, 0.1)" # Dynamic alpha based on theme color
+        ))
+        
+        # Expected Line
+        if 'expected_power_kw' in df.columns and "Solar" in title:
+            fig.add_trace(go.Scatter(x=df[x], y=df['expected_power_kw'], name="Expected", 
+                                     line=dict(color="#6e7681", width=2, dash="dot")))
 
-        if st.button("Generate & Download Invoice", type="primary"):
-            ws['A1'].value = from_date.strftime("%b'%y")
-            ws['B2'].value = from_date.strftime("%d/%m/%y")
-            ws['B3'].value = to_date.strftime("%d/%m/%y")
-            ws['B4'].value = (to_date - from_date).days
-            ws['C7'].value = v_c7; ws['C9'].value = v_c9; ws['E9'].value = v_e9
-            ws['C10'].value = v_c10; ws['C11'].value = v_c11; ws['C12'].value = v_c12
-            ws['G21'].value = v_g21
-            ws['E7'] = '=C7*D7' # Re-inject formula
+        # The "Pro" Layout Features
+        fig.update_layout(
+            template=theme['chart_theme'],
+            title=dict(text=title, font=dict(family="-apple-system", size=16, color=theme['text'])),
+            height=500,
+            hovermode="x unified",
+            margin=dict(l=0, r=0, t=50, b=0),
+            xaxis=dict(
+                showgrid=False, 
+                color=theme['subtext'],
+                rangeslider=dict(visible=True, thickness=0.05), # Range Slider
+                type="date"
+            ),
+            yaxis=dict(
+                showgrid=True, 
+                gridcolor=theme['grid'], 
+                color=theme['subtext'],
+                zeroline=False
+            ),
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            # Time Selectors
+            updatemenus=[
+                dict(
+                    type="buttons",
+                    direction="right",
+                    x=1, y=1.1,
+                    showactive=True,
+                    buttons=list([
+                        dict(label="1h", method="relayout", args=[{"xaxis.range": [None, None]}]), # Reset logic placeholder
+                        dict(label="All", method="relayout", args=[{"xaxis.autorange": True}])
+                    ]),
+                    bgcolor=theme['card'],
+                    font=dict(color=theme['text'])
+                )
+            ]
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # 6C. TABS
+    t1, t2, t3, t4, t5 = st.tabs(["Solar", "Generator", "Factory", "Kehua", "Billing"])
+
+    with t1:
+        st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
+        pro_chart(filtered, 'last_changed', 'total_solar', "Solar Output vs Forecast", 'rgb(35, 134, 54)') # GitHub Green
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with t2:
+        st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
+        with c1: pro_chart(filtered, 'last_changed', 'sensor.generator_fuel_consumed', "Fuel (L)", 'rgb(218, 54, 51)') # Red
+        with c2: pro_chart(filtered, 'last_changed', 'sensor.generator_runtime_duration', "Runtime (h)", 'rgb(137, 87, 229)') # Purple
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with t3:
+        st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
+        pro_chart(filtered, 'last_changed', 'daily_factory_kwh', "Factory Load (kWh)", 'rgb(9, 105, 218)') # GitHub Blue
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with t4:
+        st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
+        pro_chart(filtered, 'last_changed', 'sensor.kehua_internal_power', "Kehua Internal (kW)", 'rgb(31, 111, 235)')
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with t5:
+        st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
+        st.subheader("🧾 Invoice Generator")
+        try:
+            resp = requests.get(BILLING_URL)
+            wb = openpyxl.load_workbook(io.BytesIO(resp.content), data_only=False)
+            ws = wb.active
             
-            buf = io.BytesIO()
-            wb.save(buf)
-            buf.seek(0)
-            st.success("Invoice generated successfully!")
-            st.download_button("Download Excel File", buf, f"Invoice_{from_date}.xlsx")
-            
-    except Exception as e:
-        st.error(f"Billing System Error: {e}")
-    st.markdown("</div>", unsafe_allow_html=True)
-    
-st.toast("System Synced & Ready", icon="✅")
+            c1, c2 = st.columns(2)
+            with c1:
+                b2 = ws['B2'].value or "30/09/25"
+                from_date = st.date_input("From Date", value=datetime.strptime(b2, "%d/%m/%y").date())
+                v_c7 = st.number_input("Freedom Village (C7)", value=float(ws['C7'].value or 0))
+                v_c9 = st.number_input("Boerdery (C9)", value=float(ws['C9'].value or 0))
+                v_e9 = st.number_input("Boerdery Cost (E9)", value=float(ws['E9'].value or 0))
+            with c2:
+                to_date = st.date_input("To Date", value=datetime.strptime(ws['B3'].value or "05/11/25", "%d/%m/%y").date())
+                v_g21 = st.number_input("Drakenstein (G21)", value=float(ws['G21'].value or 0))
+
+            st.markdown("**Sub-Units**")
+            s1, s2, s3 = st.columns(3)
+            with s1: v_c10 = st.number_input("Johan & Stoor", value=float(ws['C10'].value or 0))
+            with s2: v_c11 = st.number_input("Pomp & Willie", value=float(ws['C11'].value or 0))
+            with s3: v_c12 = st.number_input("Werkers", value=float(ws['C12'].value or 0))
+
+            if st.button("Generate Invoice", type="primary"):
+                ws['A1'].value = from_date.strftime("%b'%y")
+                ws['B2'].value = from_date.strftime("%d/%m/%y")
+                ws['B3'].value = to_date.strftime("%d/%m/%y")
+                ws['B4'].value = (to_date - from_date).days
+                ws['C7'].value = v_c7; ws['C9'].value = v_c9; ws['E9'].value = v_e9
+                ws['C10'].value = v_c10; ws['C11'].value = v_c11; ws['C12'].value = v_c12
+                ws['G21'].value = v_g21
+                
+                buf = io.BytesIO()
+                wb.save(buf)
+                buf.seek(0)
+                st.download_button("Download Excel", buf, f"Invoice_{from_date}.xlsx")
+        except: st.error("Billing Offline")
+        st.markdown("</div>", unsafe_allow_html=True)
+else:
+    st.info("System Ready. Waiting for data sync...")
