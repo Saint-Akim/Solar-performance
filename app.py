@@ -180,7 +180,6 @@ if all_dfs:
         df[right_on] = pd.to_datetime(df[right_on], errors='coerce')
         merged = pd.merge_asof(merged.sort_values(left_on), df.sort_values(right_on),
                                left_on=left_on, right_on=right_on, direction='nearest', tolerance=pd.Timedelta('1H'))
-        # tolerance 1 hour helps keep things close; remove tolerance if you need nearest full range
 
 # canonical timestamp column
 if not merged.empty:
@@ -271,7 +270,7 @@ def plot_actual_vs_expected(df, timestamp_col, actual_col, expected_col, title, 
                                          line=dict(color=color_actual, width=2)
                                          )))
     fig.add_trace(go.Scatter(x=x, y=y_exp, mode='lines', name='Expected', line=dict(color=color_expected, dash='dash', width=3)))
-    # add shortfall as area (optional)
+    # add shortfall as area
     shortfall = (df[expected_col] - df[actual_col]).clip(lower=0)
     fig.add_trace(go.Bar(x=x, y=shortfall, name='Shortfall (kW)', marker_color='rgba(255,99,71,0.25)', opacity=0.6, yaxis='y'))
 
