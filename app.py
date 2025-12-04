@@ -1,5 +1,5 @@
 # app.py — Southern Paarl Energy Dashboard (FINAL • December 2025)
-# Fully working • Live Fuel SA API • Generator Costs • Billing Editor • Dark/Light Mode
+# Fully integrated • Live Fuel SA API • Generator Costs • Billing Editor • Dark/Light Mode
 
 import streamlit as st
 import pandas as pd
@@ -17,7 +17,7 @@ st.set_page_config(page_title="Southern Paarl Energy", page_icon="⚡", layout="
 if 'theme' not in st.session_state:
     st.session_state.theme = 'light'
 
-# ------------------ 2. PROFESSIONAL UI (Light + Dark Mode) ------------------
+# ------------------ 2. PROFESSIONAL DESIGN SYSTEM ------------------
 if st.session_state.theme == 'dark':
     theme = {
         "bg": "#121212", "card": "#1E1E1E", "text": "#E0E0E0", "label": "#A0A0A0",
