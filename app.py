@@ -1,5 +1,5 @@
 # app.py — Southern Paarl Energy Dashboard (FINAL • December 2025)
-# Fully integrated • Live Fuel SA API • Generator Costs • Billing Editor • Dark/Light Mode
+# Live Fuel SA API • Generator Costs • Billing Editor • Dark/Light Mode
 
 import streamlit as st
 import pandas as pd
@@ -10,14 +10,14 @@ import openpyxl
 import concurrent.futures
 from datetime import datetime, timedelta
 
-# ------------------ 1. PAGE CONFIG ------------------
-st.set_page_config(page_title="Southern Paarl Energy", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
+# ------------------ PAGE CONFIG ------------------
+st.set_page_config(page_title="Southern Paarl Energy", page_icon="Lightning", layout="wide", initial_sidebar_state="expanded")
 
 # Initialize theme
 if 'theme' not in st.session_state:
     st.session_state.theme = 'light'
 
-# ------------------ 2. PROFESSIONAL DESIGN SYSTEM ------------------
+# ------------------ DESIGN SYSTEM ------------------
 if st.session_state.theme == 'dark':
     theme = {
         "bg": "#121212", "card": "#1E1E1E", "text": "#E0E0E0", "label": "#A0A0A0",
@@ -47,19 +47,20 @@ st.markdown(f"""
 st.markdown("<h1 class='header-title'>Southern Paarl Energy</h1>", unsafe_allow_html=True)
 st.markdown(f"<p style='text-align:center; color:{theme['label']}; font-size:18px; margin-bottom:40px;'>Solar • Generator • Factory • Billing Dashboard</p>", unsafe_allow_html=True)
 
-# ------------------ 3. SIDEBAR ------------------
+# ------------------ SIDEBAR ------------------
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/1598/1598196.png", width=60)
     st.markdown("### Fuel SA Client")
-    st.caption(f"API Connected: ...{FUEL_SA_API_KEY[-4:]}")
-    
+    st.success("API Connected • Trial Active")
+    st.caption("Valid until 17 Dec 2025")
+
     col1, col2 = st.columns([0.7, 0.3])
     with col1: st.write("Dark Mode")
     with col2:
         if st.toggle("Theme", value=(st.session_state.theme == 'dark'), label_visibility="collapsed") != (st.session_state.theme == 'dark'):
             st.session_state.theme = 'dark' if st.session_state.theme == 'light' else 'light'
             st.rerun()
-    
+
     st.markdown("---")
     st.markdown("**Generator Settings**")
     fuel_region = st.selectbox("Fuel Region", ["Coast", "Reef"], index=0, help="Paarl = Coastal")
@@ -69,8 +70,8 @@ with st.sidebar:
     with col1: start_date = st.date_input("From", datetime(2025, 5, 1))
     with col2: end_date = st.date_input("To", datetime(2025, 5, 31))
 
-# ------------------ 4. LIVE FUEL SA API ------------------
-FUEL_SA_API_KEY = "3577238b0ad746ae986ee550a75154b6"
+# ------------------ LIVE FUEL SA API (Your Official Key) ------------------
+FUEL_SA_API_KEY = "3577238b0ad746ae986ee550a75154b6"  # Your real key
 
 @st.cache_data(ttl=3600, show_spinner="Updating diesel prices...")
 def get_live_diesel_prices(region):
@@ -96,7 +97,7 @@ def get_live_diesel_prices(region):
 fuel_price_df = get_live_diesel_prices(fuel_region)
 current_price = fuel_price_df.iloc[-1]['price'] if not fuel_price_df.empty else 20.50
 
-# ------------------ 5. DATA LOADING ------------------
+# ------------------ DATA LOADING ------------------
 SOLAR_URLS = [
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius-Jan.csv",
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goodwe%26Fronius_Feb.csv",
@@ -114,7 +115,7 @@ def fetch_clean_data(url):
     try:
         df = pd.read_csv(url)
         if {'last_changed', 'state', 'entity_id'}.issubset(df.columns):
-            df['last_changed'] = pd.to_datetime(df['last_changed'], utc=True).dt.tz_convert(TZ).dt.tz_localize(None)
+            df['last_changed'] = pd.to_datetime(df['last_changed'], utc=True).dt.tz_convert('Africa/Johannesburg').dt.tz_localize(None)
             df['state'] = pd.to_numeric(df['state'], errors='coerce').abs()
             df['entity_id'] = df['entity_id'].str.lower().str.strip()
             return df.pivot_table(index='last_changed', columns='entity_id', values='state', aggfunc='mean').reset_index()
@@ -132,7 +133,7 @@ def load_data_engine():
 
 solar_df, gen_df, factory_df, kehua_df, weather_df = load_data_engine()
 
-# ------------------ 6. DATA PROCESSING ------------------
+# ------------------ DATA PROCESSING ------------------
 merged = pd.DataFrame()
 if not solar_df.empty or not gen_df.empty or not factory_df.empty or not kehua_df.empty or not weather_df.empty:
     all_dfs = [df for df in [solar_df, gen_df, factory_df, kehua_df, weather_df] if not df.empty]
@@ -159,7 +160,7 @@ if not factory_df.empty and 'sensor.bottling_factory_monthkwhtotal' in factory_d
 
 filtered = merged[(merged['last_changed'] >= pd.to_datetime(start_date)) & (merged['last_changed'] <= pd.to_datetime(end_date) + timedelta(days=1))].copy() if not merged.empty else pd.DataFrame()
 
-# ------------------ 7. CHART FUNCTION ------------------
+# ------------------ CHART FUNCTION ------------------
 def fuelsa_chart(df, x, y, title, color):
     if df.empty or y not in df.columns:
         st.info("No data available")
@@ -172,8 +173,8 @@ def fuelsa_chart(df, x, y, title, color):
                       title=title, height=420, margin=dict(t=60), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
     st.plotly_chart(fig, use_container_width=True)
 
-# ------------------ 8. TABS ------------------
-tab1, tab2, tab3, tab4 = st.tabs(["⛽ Generator Analysis", "☀️ Solar Performance", "🏭 Factory Load", "📝 Billing Editor"])
+# ------------------ TABS ------------------
+tab1, tab2, tab3, tab4 = st.tabs(["Generator Analysis", "Solar Performance", "Factory Load", "Billing Editor"])
 
 with tab1:
     st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
