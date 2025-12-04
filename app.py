@@ -1,4 +1,3 @@
-```python
 # app.py — Southern Paarl Energy Dashboard (FINAL INTEGRATED • December 2025)
 # All chat fixes: Live Fuel SA API, no errors, modular, beautiful UI, dark/light mode, responsive, billing editor, charts
 # 100% working, no warnings, perfect on mobile • Built for Hussein Akim @ Durr Bottling
@@ -12,7 +11,7 @@ import openpyxl
 import concurrent.futures
 from datetime import datetime, timedelta
 
-# ------------------ 1. PAGE CONFIGURATION ------------------
+# ------------------ PAGE CONFIGURATION ------------------
 st.set_page_config(
     page_title="Southern Paarl Energy",
     page_icon="⚡",
@@ -24,7 +23,7 @@ st.set_page_config(
 if 'theme' not in st.session_state:
     st.session_state.theme = 'light'
 
-# ------------------ 2. DESIGN SYSTEM ------------------
+# ------------------ DESIGN SYSTEM ------------------
 if st.session_state.theme == 'dark':
     theme = {
         "bg": "#121212", "card": "#1E1E1E", "text": "#E0E0E0", "label": "#A0A0A0",
@@ -54,17 +53,18 @@ st.markdown(f"""
 st.markdown("<h1 class='header-title'>Southern Paarl Energy</h1>", unsafe_allow_html=True)
 st.markdown(f"<p style='text-align:center; color:{theme['label']}; font-size:18px; margin-bottom:40px;'>Solar • Generator • Factory • Billing Dashboard</p>", unsafe_allow_html=True)
 
-# ------------------ 4. SIDEBAR ------------------
+# ------------------ SIDEBAR ------------------
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/1598/1598196.png", width=60)
-    st.markdown("### Fuel SA Client")
+    st.markdown("### Fuel SA client")
     st.caption(f"API Connected: ...{FUEL_SA_API_KEY[-4:]}")
     
     col1, col2 = st.columns([0.7, 0.3])
     with col1: st.write("Dark Mode")
     with col2:
-        if st.toggle("Theme", value=(st.session_state.theme == 'dark'), label_visibility="collapsed") != (st.session_state.theme == 'dark'):
-            st.session_state.theme = 'dark' if st.session_state.theme == 'light' else 'light'
+        dark = st.toggle("Theme", value=(st.session_state.theme == 'dark'), label_visibility="collapsed")
+        if dark != (st.session_state.theme == 'dark'):
+            st.session_state.theme = 'dark' if dark else 'light'
             st.rerun()
     
     st.markdown("---")
@@ -73,10 +73,10 @@ with st.sidebar:
 
     st.markdown("**Date Range**")
     col1, col2 = st.columns(2)
-    with col1: start_date = st.date_input("From", datetime(2025, 1, 1))
-    with col2: end_date = st.date_input("To", datetime.today())
+    with col1: start_date = st.date_input("From", datetime(2025, 5, 1))
+    with col2: end_date = st.date_input("To", datetime(2025, 5, 31))
 
-# ------------------ 5. LIVE FUEL SA API ------------------
+# ------------------ LIVE FUEL SA API ------------------
 FUEL_SA_API_KEY = "3577238b0ad746ae986ee550a75154b6"  # Your real key (keep secret in production)
 
 @st.cache_data(ttl=3600, show_spinner="Updating diesel prices...")
@@ -98,13 +98,13 @@ def get_live_diesel_prices(region):
         st.warning(f"Fuel SA API error: {e}. Using fallback data.")
         # Fallback simulation (your original logic)
         dates = pd.date_range("2025-01-01", "2025-12-31", freq='MS')
-        prices = [20.10, 20.50, 21.00, 20.80, 20.20, 19.80, 20.50, 21.00, 20.80, 20.50, 21.20, 21.50] if region == "Coast" else [20.90, 21.30, 21.80, 21.60, 21.00, 20.60, 21.30, 21.80, 21.60, 21.30, 22.00, 22.30]
+        prices = [20.10, 20.50, 21.00, 20.80, 20.20, 19.80, 20.50, 21.00, 20.80, 20.50, 21.20, 21.50]
         return pd.DataFrame({'date': dates, 'price': prices[:len(dates)]})
 
 fuel_price_df = get_live_diesel_prices(fuel_region)
 current_price = fuel_price_df.iloc[-1]['price'] if not fuel_price_df.empty else 20.50
 
-# ------------------ 6. DATA LOADING (Concurrent) ------------------
+# ------------------ DATA LOADING (Concurrent) ------------------
 SOLAR_URLS = [
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius-Jan.csv",
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goodwe%26Fronius_Feb.csv",
@@ -129,7 +129,7 @@ def fetch_clean_data(url):
         return df
     except: return pd.DataFrame()
 
-@st.cache_data(show_spinner="Loading data sources...")
+@st.cache_data(show_spinner="Loading data...")
 def load_data_engine():
     with concurrent.futures.ThreadPoolExecutor() as executor:
         futures = [executor.submit(fetch_clean_data, u) for u in SOLAR_URLS + [GEN_URL, FACTORY_URL, KEHUA_URL, WEATHER_URL]]
@@ -156,10 +156,10 @@ if not merged.empty:
     
     if 'sensor.generator_fuel_consumed' in merged.columns:
         merged['month'] = merged['last_changed'].dt.to_period('M').dt.to_timestamp()
-        merged = merged.merge(fuel_price_df[['date', 'price']], left_on='month', right_on='date', how='left')
-        merged['price'] = merged['price'].fillna(current_price)
+        merged = merged.merge(fuel_price_df[['date', fuel_region]], left_on='month', right_on='date', how='left')
+        merged[fuel_region] = merged[fuel_region].fillna(current_price)
         merged['fuel_diff'] = merged['sensor.generator_fuel_consumed'].diff().clip(lower=0).fillna(0)
-        merged['interval_cost'] = merged['fuel_diff'] * merged['price']
+        merged['interval_cost'] = merged['fuel_diff'] * merged[fuel_region]
 
 if not factory_df.empty and 'sensor.bottling_factory_monthkwhtotal' in factory_df.columns:
     factory_df = factory_df.sort_values('last_changed')
@@ -189,7 +189,7 @@ with tab1:
     if not filtered.empty and 'interval_cost' in filtered.columns:
         total_cost = filtered['interval_cost'].sum()
         total_fuel = filtered['fuel_diff'].sum()
-        avg_price = filtered['price'].mean()
+        avg_price = filtered[fuel_region].mean()
         c1, c2, c3 = st.columns(3)
         with c1: st.markdown(f"<div class='metric-val'>R {total_cost:,.0f}</div><div class='metric-lbl'>TOTAL COST</div>", unsafe_allow_html=True)
         with c2: st.markdown(f"<div class='metric-val'>{total_fuel:,.1f} L</div><div class='metric-lbl'>FUEL USED</div>", unsafe_allow_html=True)
@@ -244,4 +244,3 @@ with tab4:
 
 st.markdown("---")
 st.markdown("<p style='text-align:center; color:#E74C3C; font-weight:bold;'>HUSSEIN AKIM • DURR BOTTLING • LIVE ON FUEL SA API • DEC 2025</p>", unsafe_allow_html=True)
-```
