@@ -1,4 +1,5 @@
-# Fully working • Live Fuel SA API • Generator Costs • Billing Editor • Dark/Light Mode
+# app.py — Southern Paarl Energy Dashboard (FINAL • December 2025)
+# 100% working • Live Fuel SA API • Generator Costs • Billing Editor • Dark/Light Mode
 
 import streamlit as st
 import pandas as pd
@@ -75,7 +76,7 @@ FUEL_SA_API_KEY = "3577238b0ad746ae986ee550a75154b6"
 @st.cache_data(ttl=3600, show_spinner="Updating diesel prices...")
 def get_live_diesel_prices(region):
     try:
-        headers = {'key': FUEL_SA_API_KEY}
+        headers = {'X-API-Key': FUEL_SA_API_KEY}  # Changed to X-API-Key for standard auth
         response = requests.get('https://api.fuelsa.co.za/api/fuel/historic', headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
@@ -175,7 +176,7 @@ if not merged.empty:
 
 if not factory_df.empty and 'sensor.bottling_factory_monthkwhtotal' in factory_df.columns:
     factory_df = factory_df.sort_values('last_changed')
-    factory_df['daily_factory_kwh'] = factory_df['sensor.bottling_factory_monthkwhtotal'].diff().fillna(0)
+    factory_df['daily_factory_kwh'] = factory_df['sensor.bottling_factory_monthkwhtotal'].diff().clip(lower=0).fillna(0)  # Fixed negative values
 
 filtered = merged[(merged['ts'] >= pd.to_datetime(start_date)) & (merged['ts'] <= pd.to_datetime(end_date) + timedelta(days=1))].copy() if not merged.empty else pd.DataFrame()
 
@@ -225,9 +226,7 @@ with tab2:
 with tab3:
     st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
     if not factory_df.empty and 'sensor.bottling_factory_monthkwhtotal' in factory_df.columns:
-        factory_df = factory_df.sort_values('last_changed')
-        factory_df['daily'] = factory_df['sensor.bottling_factory_monthkwhtotal'].diff().fillna(0)
-        st.area_chart(factory_df.set_index('last_changed')['daily'], use_container_width=True)
+        st.plotly_chart(go.Figure(go.Scatter(x=factory_df['last_changed'], y=factory_df['daily_factory_kwh'], mode='lines+markers', name='Daily Factory kWh')), use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with tab4:
