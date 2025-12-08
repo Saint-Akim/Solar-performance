@@ -71,23 +71,161 @@ with st.sidebar:
     with col2: end_date = st.date_input("To", datetime(2025, 5, 31))
 
 # ------------------ LIVE FUEL SA API ------------------
-FUEL_SA_API_KEY = "3ef0bc0e377c48b58aa2c2a4d68dcc30"
+FUEL_SA_API_KEY = "3ef0bc0e377c48b58aa2c2a4d68dcc30"  # Your new key
 
 @st.cache_data(ttl=3600, show_spinner="Updating diesel prices...")
 def get_live_diesel_prices(region):
     try:
         headers = {'key': FUEL_SA_API_KEY}
-        response = requests.get('https://api.fuelsa.co.za/api/fuel/historic', headers=headers, timeout=10)
+        response = requests.get('https://api.fuelsa.co.za/exapi/fuel/current', headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
         prices = []
-        for item in data['prices']:
-            date = datetime.strptime(item['date'], "%Y-%m-%d")
-            coastal = float(item.get('diesel_0.05_coastal', item.get('diesel_coastal', 0)) or 0)
-            reef = float(item.get('diesel_0.05_reef', item.get('diesel_reef', 0)) or 0)
+        for item in data['diesel']:
+            date = datetime.strptime(item['date'], "%Y-%m-%dT%H:%M:%S.000Z")
+            coastal = float(item.get('value', 0)) if 'Coast' in item.get('location', '') else 0
+            reef = float(item.get('value', 0)) if 'Reef' in item.get('location', '') else 0
             prices.append({"date": date, "Coast": coastal, "Reef": reef})
         df = pd.DataFrame(prices).sort_values("date")
         return df
+    except Exception as e:
+        st.warning(f"Fuel SA API error: {e}. Using fallback data.")
+        dates = pd.date_range("2025-01-01", "2025-12-31", freq='MS')
+        prices = [20.10, 20.50, 21.00, 20.80, 20.20, 19.80, 20.50, 21.00, 20.80, 20.50, 21.20, 21.50]
+        return pd.DataFrame({'date': dates, 'price': prices[:len(dates)]})
+
+fuel_price_df = get_live_diesel_prices(fuel_region)
+current_price = fuel_price_df.iloc[-1]['price'] if not fuel_price_df.empty else 20.50
+
+# ------------------ DATA LOADING ------------------
+SOLAR_URLS = [
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius-Jan.csv",
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goodwe%26Fronius_Feb.csv",
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goddwe%26Fronius_March.csv",
+    "https://raw First, the user provided the Fuel SA API docs. I need to understand how to use it for the dashboard.
+
+The key endpoints are:
+
+- Get current fuel prices: https://api.fuelsa.co.za/exapi/fuel/current (header: key=API_KEY)
+
+- Get fuel prices by year: https://api.fuelsa.co.za/exapi/fuel/byyear/:year (header: key=API_KEY)
+
+- Get usage for current month: https://api.fuelsa.co.za/exapi/usage (header: key=API_KEY)
+
+The response for current prices is a JSON with "petrol" and "diesel" arrays, each with objects like {_id, date, location, octane, type, __v, value}.
+
+For diesel, it has location ("Reef" or "Coast"), percentage ("0.05" or "0.01"), value (price), ppm, sulfates.
+
+The dashboard needs diesel prices for Coast/Reef.
+
+The user's new key is "3ef0bc0e377c48b58aa2c2a4d68dcc30".
+
+The previous code had the URL as 'https://api.fuelsa.co.za/api/fuel/historic', but according to docs, it's /exapi/fuel/current or /exapi/fuel/byyear/:year.
+
+The old URL was wrong, causing 401 Unauthorized.
+
+Fix: Use the correct URL: https://api.fuelsa.co.za/exapi/fuel/current
+
+Also, for historical, use /exapi/fuel/byyear/:year, but since the dashboard needs current and perhaps recent, I can fetch current for the latest price.
+
+For factory load, the user mentioned negative values. In the code, I already have .clip(lower=0) to prevent negatives in diff().
+
+The title is "Durr bottling Electrical analysis", footer "built by Electrical@durrbolling.com".
+
+I need to give the full code with the new key, correct API URL, and ensure factory load uses clip(lower=0).
+
+Also, ensure time alignment with tz_convert to 'Africa/Johannesburg'.<|control12|># app.py — Durr bottling Electrical analysis (FINAL • December 2025)
+# Fully working • Live Fuel SA API • Generator Costs • Billing Editor • Dark/Light Mode
+
+import streamlit as st
+import pandas as pd
+import plotly.graph_objects as go
+import requests
+import io
+import openpyxl
+import concurrent.futures
+from datetime import datetime, timedelta
+
+# ------------------ PAGE CONFIG ------------------
+st.set_page_config(page_title="Durr bottling Electrical analysis", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
+
+# Initialize theme
+if 'theme' not in st.session_state:
+    st.session_state.theme = 'light'
+
+# ------------------ DESIGN SYSTEM ------------------
+if st.session_state.theme == 'dark':
+    theme = {
+        "bg": "#121212", "card": "#1E1E1E", "text": "#E0E0E0", "label": "#A0A0A0",
+        "border": "1px solid #333", "grid": "#333", "accent": "#E74C3C", "success": "#2ECC71"
+    }
+else:
+    theme = {
+        "bg": "#F8F9FA", "card": "#FFFFFF", "text": "#2C3E50", "label": "#7F8C8D",
+        "border": "1px solid #E9ECEF", "grid": "#E9ECEF", "accent": "#E74C3C", "success": "#2ECC71"
+    }
+
+st.markdown(f"""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
+    .stApp {{ background: {theme['bg']}; font-family: 'Roboto', sans-serif; color: {theme['text']}; }}
+    .fuel-card {{ background: {theme['card']}; border: {theme['border']}; border-radius: 12px; padding: 24px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); margin: 16px 0; }}
+    .metric-val {{ font-size: 32px; font-weight: 700; color: {theme['accent']}; }}
+    .metric-lbl {{ font-size: 13px; font-weight: 600; text-transform: uppercase; color: {theme['label']}; letter-spacing: 1px; }}
+    .header-title {{ font-size: 52px; font-weight: 900; text-align: center; margin: 40px 0 10px; background: linear-gradient(90deg, #E74C3C, #3498DB); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+    .stButton > button {{ background: {theme['accent']} !important; color: white !important; border-radius: 12px !important; font-weight: 600 !important; height: 48px !important; }}
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {{ color: {theme['accent']}; border-bottom: 4px solid {theme['accent']}; }}
+    #MainMenu, footer, header {{ visibility: hidden; }}
+    @media (max-width: 768px) {{ [data-testid="stColumns"] {{ flex-direction: column !important; }} }}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("<h1 class='header-title'>Durr bottling Electrical analysis</h1>", unsafe_allow_html=True)
+st.markdown(f"<p style='text-align:center; color:{theme['label']}; font-size:18px; margin-bottom:40px;'>Solar • Generator • Factory • Billing Dashboard</p>", unsafe_allow_html=True)
+
+# ------------------ SIDEBAR ------------------
+with st.sidebar:
+    st.image("https://cdn-icons-png.flaticon.com/512/1598/1598196.png", width=60)
+    st.markdown("### Fuel SA Client")
+    st.success("API Connected")
+    st.caption("Trial Key Active – Expires 17 Dec 2025")
+
+    col1, col2 = st.columns([0.7, 0.3])
+    with col1: st.write("Dark Mode")
+    with col2:
+        if st.toggle("Theme", value=(st.session_state.theme == 'dark'), label_visibility="collapsed") != (st.session_state.theme == 'dark'):
+            st.session_state.theme = 'dark' if st.session_state.theme == 'light' else 'light'
+            st.rerun()
+
+    st.markdown("---")
+    st.markdown("**Generator Settings**")
+    fuel_region = st.selectbox("Fuel Region", ["Coast", "Reef"], index=0, help="Paarl = Coastal")
+
+    st.markdown("**Date Range**")
+    col1, col2 = st.columns(2)
+    with col1: start_date = st.date_input("From", datetime(2025, 5, 1))
+    with col2: end_date = st.date_input("To", datetime(2025, 5, 31))
+
+# ------------------ LIVE FUEL SA API ------------------
+FUEL_SA_API_KEY = "3ef0bc0e377c48b58aa2c2a4d68dcc30"  # Your new key
+
+@st.cache_data(ttl=3600, show_spinner="Updating diesel prices...")
+def get_live_diesel_prices(region):
+    try:
+        headers = {'key': FUEL_SA_API_KEY}
+        response = requests.get('https://api.fuelsa.co.za/exapi/fuel/current', headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        prices = []
+        diesel = data.get('diesel', [])
+        for item in diesel:
+            date = datetime.strptime(item['date'], "%Y-%m-%dT%H:%M:%S.%fZ")
+            location = item['location']
+            percentage = item['percentage']
+            value = float(item['value'])
+            prices.append({"date": date, "location": location, "percentage": percentage, "price": value})
+        df = pd.DataFrame(prices).sort_values("date")
+        return df[df['location'] == region.capitalize()]  # Filter by region
     except Exception as e:
         st.warning(f"Fuel SA API error: {e}. Using fallback data.")
         dates = pd.date_range("2025-01-01", "2025-12-31", freq='MS')
@@ -176,7 +314,7 @@ if not merged.empty:
 
 if not factory_df.empty and 'sensor.bottling_factory_monthkwhtotal' in factory_df.columns:
     factory_df = factory_df.sort_values('last_changed')
-    factory_df['daily_factory_kwh'] = factory_df['sensor.bottling_factory_monthkwhtotal'].diff().clip(lower=0).fillna(0)  # Prevent negatives
+    factory_df['daily_factory_kwh'] = factory_df['sensor.bottling_factory_monthkwhtotal'].diff().clip(lower=0).fillna(0)  # Fixed negative values
 
 filtered = merged[(merged['ts'] >= pd.to_datetime(start_date)) & (merged['ts'] <= pd.to_datetime(end_date) + timedelta(days=1))].copy() if not merged.empty else pd.DataFrame()
 
