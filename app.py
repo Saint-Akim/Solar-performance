@@ -1,5 +1,4 @@
-# app.py — Southern Paarl Energy Dashboard (FINAL • December 2025)
-# 100% working • Live Fuel SA API • Generator Costs • Billing Editor • Dark/Light Mode
+
 
 import streamlit as st
 import pandas as pd
