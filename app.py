@@ -1,4 +1,4 @@
-
+# Fully working • Live Fuel SA API • Generator Costs • Billing Editor • Dark/Light Mode
 
 import streamlit as st
 import pandas as pd
@@ -10,7 +10,7 @@ import concurrent.futures
 from datetime import datetime, timedelta
 
 # ------------------ PAGE CONFIG ------------------
-st.set_page_config(page_title="Southern Paarl Energy", page_icon="Lightning", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Durr bottling Electrical analysis", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
 
 # Initialize theme
 if 'theme' not in st.session_state:
@@ -19,7 +19,7 @@ if 'theme' not in st.session_state:
 # ------------------ DESIGN SYSTEM ------------------
 if st.session_state.theme == 'dark':
     theme = {
-        "bg": "#121212", "card": "#1E1E1E", "text": "#E0E0E0", "label": "#A0A0A0A",
+        "bg": "#121212", "card": "#1E1E1E", "text": "#E0E0E0", "label": "#A0A0A0",
         "border": "1px solid #333", "grid": "#333", "accent": "#E74C3C", "success": "#2ECC71"
     }
 else:
@@ -43,7 +43,7 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<h1 class='header-title'>Southern Paarl Energy</h1>", unsafe_allow_html=True)
+st.markdown("<h1 class='header-title'>Durr bottling Electrical analysis</h1>", unsafe_allow_html=True)
 st.markdown(f"<p style='text-align:center; color:{theme['label']}; font-size:18px; margin-bottom:40px;'>Solar • Generator • Factory • Billing Dashboard</p>", unsafe_allow_html=True)
 
 # ------------------ SIDEBAR ------------------
@@ -96,7 +96,7 @@ def get_live_diesel_prices(region):
 fuel_price_df = get_live_diesel_prices(fuel_region)
 current_price = fuel_price_df.iloc[-1]['price'] if not fuel_price_df.empty else 20.50
 
-# ------------------ DATA LOADING (Safe & Concurrent) ------------------
+# ------------------ DATA LOADING ------------------
 SOLAR_URLS = [
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius-Jan.csv",
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goodwe%26Fronius_Feb.csv",
@@ -255,4 +255,4 @@ with tab4:
     st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown("---")
-st.markdown("<p style='text-align:center; color:#E74C3C; font-weight:bold;'>HUSSEIN AKIM • DURR BOTTLING • LIVE ON FUEL SA API • DEC 2025</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center; color:#E74C3C; font-weight:bold;'>built by Electrical@durrbolling.com</p>", unsafe_allow_html=True)
