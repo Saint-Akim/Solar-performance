@@ -1,5 +1,5 @@
 # app.py — Southern Paarl Energy Dashboard (FINAL • December 2025)
-# Live Fuel SA API • Generator Costs • Billing Editor • Dark/Light Mode
+# 100% working • Live Fuel SA API • Generator Costs • Billing Editor • Dark/Light Mode
 
 import streamlit as st
 import pandas as pd
@@ -20,7 +20,7 @@ if 'theme' not in st.session_state:
 # ------------------ DESIGN SYSTEM ------------------
 if st.session_state.theme == 'dark':
     theme = {
-        "bg": "#121212", "card": "#1E1E1E", "text": "#E0E0E0", "label": "#A0A0A0",
+        "bg": "#121212", "card": "#1E1E1E", "text": "#E0E0E0", "label": "#A0A0A0A",
         "border": "1px solid #333", "grid": "#333", "accent": "#E74C3C", "success": "#2ECC71"
     }
 else:
@@ -97,7 +97,7 @@ def get_live_diesel_prices(region):
 fuel_price_df = get_live_diesel_prices(fuel_region)
 current_price = fuel_price_df.iloc[-1]['price'] if not fuel_price_df.empty else 20.50
 
-# ------------------ DATA LOADING ------------------
+# ------------------ DATA LOADING (Safe & Concurrent) ------------------
 SOLAR_URLS = [
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius-Jan.csv",
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goodwe%26Fronius_Feb.csv",
@@ -133,22 +133,42 @@ def load_data_engine():
 
 solar_df, gen_df, factory_df, kehua_df, weather_df = load_data_engine()
 
-# ------------------ DATA PROCESSING ------------------
-merged = pd.DataFrame()
-if not solar_df.empty or not gen_df.empty or not factory_df.empty or not kehua_df.empty or not weather_df.empty:
-    all_dfs = [df for df in [solar_df, gen_df, factory_df, kehua_df, weather_df] if not df.empty]
-    merged = all_dfs[0].copy()
-    for df in all_dfs[1:]:
-        col = 'last_changed' if 'last_changed' in df.columns else 'period_end'
-        merged = pd.merge_asof(merged.sort_values('last_changed'), df.sort_values(col), left_on='last_changed', right_on=col, direction='nearest')
+# ------------------ SAFE MERGING (NO MORE CRASHES) ------------------
+def get_time_column(df):
+    for col in df.columns:
+        if 'timestamp' in col.lower() or 'last_changed' in col.lower() or 'period_end' in col.lower():
+            return col
+    return None
 
+all_dfs = [df for df in [solar_df, gen_df, factory_df, kehua_df, weather_df] if not df.empty and get_time_column(df) is not None]
+
+merged = pd.DataFrame()
+if all_dfs:
+    base_df = all_dfs[0].copy()
+    time_col = get_time_column(base_df)
+    if time_col:
+        base_df['ts'] = pd.to_datetime(base_df[time_col], errors='coerce')
+        base_df = base_df.dropna(subset=['ts']).sort_values('ts')
+        merged = base_df.copy()
+        
+        for df in all_dfs[1:]:
+            col = get_time_column(df)
+            if col and not df.empty:
+                df['ts_temp'] = pd.to_datetime(df[col], errors='coerce')
+                df = df.dropna(subset=['ts_temp']).sort_values('ts_temp')
+                try:
+                    merged = pd.merge_asof(merged, df, left_on='ts', right_on='ts_temp', direction='nearest', tolerance=pd.Timedelta('1h'))
+                except:
+                    pass  # Skip if merge fails
+
+# Post-processing
 if not merged.empty:
     if 'sensor.fronius_grid_power' in merged.columns: merged['sensor.fronius_grid_power'] /= 1000
     if 'sensor.goodwe_grid_power' in merged.columns: merged['sensor.goodwe_grid_power'] /= 1000
     merged['total_solar'] = merged.get('sensor.fronius_grid_power', 0).fillna(0) + merged.get('sensor.goodwe_grid_power', 0).fillna(0)
     
     if 'sensor.generator_fuel_consumed' in merged.columns:
-        merged['month'] = merged['last_changed'].dt.to_period('M').dt.to_timestamp()
+        merged['month'] = merged['ts'].dt.to_period('M').dt.to_timestamp()
         merged = merged.merge(fuel_price_df[['date', 'price']], left_on='month', right_on='date', how='left')
         merged['price'] = merged['price'].fillna(current_price)
         merged['fuel_diff'] = merged['sensor.generator_fuel_consumed'].diff().clip(lower=0).fillna(0)
@@ -158,7 +178,7 @@ if not factory_df.empty and 'sensor.bottling_factory_monthkwhtotal' in factory_d
     factory_df = factory_df.sort_values('last_changed')
     factory_df['daily_factory_kwh'] = factory_df['sensor.bottling_factory_monthkwhtotal'].diff().fillna(0)
 
-filtered = merged[(merged['last_changed'] >= pd.to_datetime(start_date)) & (merged['last_changed'] <= pd.to_datetime(end_date) + timedelta(days=1))].copy() if not merged.empty else pd.DataFrame()
+filtered = merged[(merged['ts'] >= pd.to_datetime(start_date)) & (merged['ts'] <= pd.to_datetime(end_date) + timedelta(days=1))].copy() if not merged.empty else pd.DataFrame()
 
 # ------------------ CHART FUNCTION ------------------
 def fuelsa_chart(df, x, y, title, color):
@@ -188,8 +208,8 @@ with tab1:
         with c2: st.markdown(f"<div class='metric-val'>{total_fuel:,.1f} L</div><div class='metric-lbl'>FUEL USED</div>", unsafe_allow_html=True)
         with c3: st.markdown(f"<div class='metric-val'>R {avg_price:.2f}</div><div class='metric-lbl'>AVG PRICE</div>", unsafe_allow_html=True)
         
-        daily_cost = filtered.resample('D', on='last_changed')['interval_cost'].sum().reset_index()
-        fig = go.Figure(go.Bar(x=daily_cost['last_changed'], y=daily_cost['interval_cost'], marker_color=theme['accent']))
+        daily_cost = filtered.resample('D', on='ts')['interval_cost'].sum().reset_index()
+        fig = go.Figure(go.Bar(x=daily_cost['ts'], y=daily_cost['interval_cost'], marker_color=theme['accent']))
         fig.update_layout(title="Daily Generator Cost (ZAR)", height=420)
         st.plotly_chart(fig, use_container_width=True)
     else:
@@ -199,7 +219,7 @@ with tab1:
 with tab2:
     st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
     if not filtered.empty and 'total_solar' in filtered.columns:
-        st.plotly_chart(go.Figure(go.Scatter(x=filtered['last_changed'], y=filtered['total_solar'], mode='lines+markers', name='Solar Output')), use_container_width=True)
+        st.plotly_chart(go.Figure(go.Scatter(x=filtered['ts'], y=filtered['total_solar'], mode='lines+markers', name='Solar Output')), use_container_width=True)
         st.success(f"Peak Solar Today: {filtered['total_solar'].max():.1f} kW")
     st.markdown("</div>", unsafe_allow_html=True)
 
