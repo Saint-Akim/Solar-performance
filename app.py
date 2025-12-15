@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import requests
+import io
+import openpyxl
 from datetime import datetime, timedelta
 import concurrent.futures
 
@@ -163,27 +165,25 @@ solar_df, gen_github_df, factory_df, kehua_df, weather_df = load_data_engine()
 
 gen_df = pd.read_csv(uploaded_gen_file) if uploaded_gen_file else gen_github_df
 
-# ------------------ GENERATOR PROCESSING FOR PIVOTED FORMAT ------------------
+# ------------------ GENERATOR PROCESSING (LONG FORMAT SUPPORT) ------------------
 @st.cache_data(show_spinner=False)
 def process_generator_data(_gen_df: pd.DataFrame):
     if _gen_df.empty:
         return pd.DataFrame(), pd.DataFrame()
 
-    if 'last_changed' not in _gen_df.columns:
-        st.error("Generator CSV does not have 'last_changed' column.")
+    # Long format: entity_id, state, last_changed
+    required = {'entity_id', 'state', 'last_changed'}
+    if not required.issubset(_gen_df.columns):
+        st.error(f"Generator CSV missing columns {required - set(_gen_df.columns)} (found: {_gen_df.columns.tolist()})")
         return pd.DataFrame(), pd.DataFrame()
 
-    sensor_cols = [c for c in _gen_df.columns if c.startswith('sensor.generator_')]
-    if not sensor_cols:
-        st.error("No generator sensor columns found.")
-        return pd.DataFrame(), pd.DataFrame()
+    _gen_df = _gen_df[['last_changed', 'entity_id', 'state']].copy()
+    _gen_df['last_changed'] = pd.to_datetime(_gen_df['last_changed'], utc=True).dt.tz_convert('Africa/Johannesburg').dt.tz_localize(None)
+    _gen_df['state'] = pd.to_numeric(_gen_df['state'], errors='coerce')
+    _gen_df = _gen_df.dropna(subset=['state']).sort_values('last_changed')
+    _gen_df['entity_id'] = _gen_df['entity_id'].str.lower().str.strip()
 
-    pivot = _gen_df[['last_changed'] + sensor_cols].copy()
-    pivot['last_changed'] = pd.to_datetime(pivot['last_changed'], utc=True).dt.tz_convert('Africa/Johannesburg').dt.tz_localize(None)
-    pivot = pivot.set_index('last_changed').sort_index()
-
-    for col in sensor_cols:
-        pivot[col] = pd.to_numeric(pivot[col], errors='coerce')
+    pivot = _gen_df.pivot_table(index='last_changed', columns='entity_id', values='state', aggfunc='last')
 
     def clean_cumulative(series):
         series = series.ffill()
@@ -194,9 +194,10 @@ def process_generator_data(_gen_df: pd.DataFrame):
     pivot['fuel_liters_cum'] = clean_cumulative(pivot.get('sensor.generator_fuel_consumed'))
     pivot['runtime_hours_cum'] = clean_cumulative(pivot.get('sensor.generator_runtime_duration'))
 
-    pivot['fuel_per_kwh'] = pivot.get('sensor.generator_fuel_per_kwh', pd.Series())
-    pivot['fuel_efficiency'] = pivot.get('sensor.generator_fuel_efficiency', pd.Series())
+    pivot['fuel_per_kwh'] = pivot.get('sensor.generator_fuel_per_kwh')
+    pivot['fuel_efficiency'] = pivot.get('sensor.generator_fuel_efficiency')
 
+    pivot = pivot.sort_index()
     pivot['fuel_used_l'] = pivot['fuel_liters_cum'].diff().clip(lower=0).fillna(0)
     pivot['runtime_used_h'] = pivot['runtime_hours_cum'].diff().clip(lower=0).fillna(0)
 
@@ -223,7 +224,7 @@ else:
 # ------------------ MERGED DATA FOR OTHER TABS ------------------
 def get_time_column(df):
     for col in df.columns:
-        if 'last_changed' in col.lower() or 'period_end' in col.lower():
+        if 'last_changed' in col.lower():
             return col
     return None
 
@@ -349,22 +350,28 @@ with tab2:
 # ==================== FACTORY LOAD TAB ====================
 with tab3:
     st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
-    if not factory_df.empty and 'sensor.bottling_factory_monthkwhtotal' in factory_df.columns:
+    if not factory_df.empty:
         factory_filtered = factory_df.copy()
-        factory_filtered['last_changed'] = pd.to_datetime(factory_filtered['last_changed'])
-        factory_filtered = factory_filtered.sort_values('last_changed')
-        factory_filtered['daily_kwh'] = factory_filtered['sensor.bottling_factory_monthkwhtotal'].diff().clip(lower=0).fillna(0)
-        factory_filtered = factory_filtered[
-            (factory_filtered['last_changed'].dt.date >= start_date) &
-            (factory_filtered['last_changed'].dt.date <= end_date)
-        ]
-        fig = go.Figure(go.Scatter(
-            x=factory_filtered['last_changed'], y=factory_filtered['daily_kwh'],
-            mode='lines+markers', name='Daily Factory Consumption',
-            line=dict(color="#3498DB", width=3)
-        ))
-        fig.update_layout(title="Daily Factory Energy Consumption (kWh)", height=500)
-        st.plotly_chart(fig, use_container_width=True)
+        if 'last_changed' in factory_filtered.columns:
+            factory_filtered['last_changed'] = pd.to_datetime(factory_filtered['last_changed'])
+            factory_filtered = factory_filtered.sort_values('last_changed')
+            if 'sensor.bottling_factory_monthkwhtotal' in factory_filtered.columns:
+                factory_filtered['daily_kwh'] = factory_filtered['sensor.bottling_factory_monthkwhtotal'].diff().clip(lower=0).fillna(0)
+                factory_filtered = factory_filtered[
+                    (factory_filtered['last_changed'].dt.date >= start_date) &
+                    (factory_filtered['last_changed'].dt.date <= end_date)
+                ]
+                fig = go.Figure(go.Scatter(
+                    x=factory_filtered['last_changed'], y=factory_filtered['daily_kwh'],
+                    mode='lines+markers', name='Daily Factory Consumption',
+                    line=dict(color="#3498DB", width=3)
+                ))
+                fig.update_layout(title="Daily Factory Energy Consumption (kWh)", height=500)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Factory cumulative kWh sensor not found.")
+        else:
+            st.info("No timestamp column in factory data.")
     else:
         st.info("No factory consumption data available.")
     st.markdown("</div>", unsafe_allow_html=True)
