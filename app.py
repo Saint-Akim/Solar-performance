@@ -123,7 +123,7 @@ current_price = get_current_diesel_price(fuel_region)
 # ------------------ DATA LOADING ------------------
 NEW_GEN_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/gen%20(2).csv"
 SOLAR_URLS = [
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fron0ius-Jan.csv",
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius-Jan.csv",
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius_Feb.csv",
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius_March.csv",
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe%26Fronius_April.csv",
@@ -131,6 +131,7 @@ SOLAR_URLS = [
 ]
 FACTORY_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/FACTORY%20ELEC.csv"
 KEHUA_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/KEHUA%20INTERNAL.csv"
+BILLING_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/September%202025.xlsx"
 WEATHER_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/csv_-33.78116654125097_19.00166906876145_horizontal_single_axis_23_30_PT60M.csv"
 
 def fetch_clean_data(url):
@@ -168,22 +169,19 @@ def process_generator_data(_gen_df: pd.DataFrame):
     if _gen_df.empty:
         return pd.DataFrame(), pd.DataFrame()
 
-    # The gen (2).csv is already pivoted: last_changed + sensor columns
     if 'last_changed' not in _gen_df.columns:
-        st.error("Generator CSV does not have 'last_changed' column (unexpected format).")
+        st.error("Generator CSV does not have 'last_changed' column.")
         return pd.DataFrame(), pd.DataFrame()
 
-    # Extract generator sensor columns
     sensor_cols = [c for c in _gen_df.columns if c.startswith('sensor.generator_')]
     if not sensor_cols:
-        st.error("No generator sensor columns found in CSV.")
+        st.error("No generator sensor columns found.")
         return pd.DataFrame(), pd.DataFrame()
 
     pivot = _gen_df[['last_changed'] + sensor_cols].copy()
     pivot['last_changed'] = pd.to_datetime(pivot['last_changed'], utc=True).dt.tz_convert('Africa/Johannesburg').dt.tz_localize(None)
     pivot = pivot.set_index('last_changed').sort_index()
 
-    # Convert to numeric
     for col in sensor_cols:
         pivot[col] = pd.to_numeric(pivot[col], errors='coerce')
 
@@ -221,6 +219,38 @@ if not daily_gen.empty:
     ].copy()
 else:
     filtered_gen = pd.DataFrame()
+
+# ------------------ MERGED DATA FOR OTHER TABS ------------------
+def get_time_column(df):
+    for col in df.columns:
+        if 'last_changed' in col.lower() or 'period_end' in col.lower():
+            return col
+    return None
+
+all_dfs = [df for df in [solar_df, factory_df, kehua_df, weather_df] if not df.empty]
+merged = pd.DataFrame()
+if all_dfs:
+    base_df = all_dfs[0].copy()
+    time_col = get_time_column(base_df)
+    if time_col:
+        base_df['ts'] = pd.to_datetime(base_df[time_col])
+        base_df = base_df.sort_values('ts')
+        merged = base_df.copy()
+        for df in all_dfs[1:]:
+            col = get_time_column(df)
+            if col:
+                df['ts'] = pd.to_datetime(df[col])
+                df = df.sort_values('ts')
+                merged = pd.merge_asof(merged, df, on='ts', direction='nearest', tolerance=pd.Timedelta('1h'))
+
+if not merged.empty:
+    if 'sensor.fronius_grid_power' in merged.columns:
+        merged['fronius_kw'] = merged['sensor.fronius_grid_power'] / 1000
+    if 'sensor.goodwe_grid_power' in merged.columns:
+        merged['goodwe_kw'] = merged['sensor.goodwe_grid_power'] / 1000
+    merged['total_solar'] = merged.get('fronius_kw', 0).fillna(0) + merged.get('goodwe_kw', 0).fillna(0)
+
+filtered_merged = merged[(merged['ts'] >= pd.to_datetime(start_date)) & (merged['ts'] <= pd.to_datetime(end_date) + timedelta(days=1))] if not merged.empty else pd.DataFrame()
 
 # ------------------ TABS ------------------
 tab1, tab2, tab3, tab4 = st.tabs(["Generator Analysis", "Solar Performance", "Factory Load", "Billing Editor"])
@@ -300,7 +330,85 @@ with tab1:
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-# Other tabs remain as placeholders or your existing code
+# ==================== SOLAR PERFORMANCE TAB ====================
+with tab2:
+    st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
+    if not filtered_merged.empty and 'total_solar' in filtered_merged.columns:
+        fig = go.Figure(go.Scatter(
+            x=filtered_merged['ts'], y=filtered_merged['total_solar'],
+            mode='lines', name='Total Solar Output',
+            line=dict(color=theme['success'], width=3)
+        ))
+        fig.update_layout(title="Solar Power Output (kW)", height=500)
+        st.plotly_chart(fig, use_container_width=True)
+        st.success(f"Peak Solar Output: {filtered_merged['total_solar'].max():.1f} kW")
+    else:
+        st.info("No solar data in selected period.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ==================== FACTORY LOAD TAB ====================
+with tab3:
+    st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
+    if not factory_df.empty and 'sensor.bottling_factory_monthkwhtotal' in factory_df.columns:
+        factory_filtered = factory_df.copy()
+        factory_filtered['last_changed'] = pd.to_datetime(factory_filtered['last_changed'])
+        factory_filtered = factory_filtered.sort_values('last_changed')
+        factory_filtered['daily_kwh'] = factory_filtered['sensor.bottling_factory_monthkwhtotal'].diff().clip(lower=0).fillna(0)
+        factory_filtered = factory_filtered[
+            (factory_filtered['last_changed'].dt.date >= start_date) &
+            (factory_filtered['last_changed'].dt.date <= end_date)
+        ]
+        fig = go.Figure(go.Scatter(
+            x=factory_filtered['last_changed'], y=factory_filtered['daily_kwh'],
+            mode='lines+markers', name='Daily Factory Consumption',
+            line=dict(color="#3498DB", width=3)
+        ))
+        fig.update_layout(title="Daily Factory Energy Consumption (kWh)", height=500)
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No factory consumption data available.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ==================== BILLING EDITOR TAB ====================
+with tab4:
+    st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
+    st.subheader("September 2025 Invoice Editor")
+    try:
+        resp = requests.get(BILLING_URL)
+        resp.raise_for_status()
+        buffer = io.BytesIO(resp.content)
+        wb = openpyxl.load_workbook(buffer, data_only=False)
+        ws = wb.active
+        col1, col2 = st.columns(2)
+        with col1:
+            from_val = ws['B2'].value or "30/09/25"
+            from_date = datetime.strptime(str(from_val).strip(), "%d/%m/%y").date()
+            from_date = st.date_input("Period From (B2)", value=from_date)
+            freedom_units = float(ws['C7'].value or 0)
+            freedom_units = st.number_input("Freedom Village Units (C7)", value=freedom_units)
+        with col2:
+            to_val = ws['B3'].value or "31/10/25"
+            to_date = datetime.strptime(str(to_val).strip(), "%d/%m/%y").date()
+            to_date = st.date_input("Period To (B3)", value=to_date)
+            boerdery_units = float(ws['C9'].value or 0)
+            boerdery_units = st.number_input("Boerdery Units (C9)", value=boerdery_units)
+        if st.button("Generate Updated Invoice", type="primary"):
+            ws['B2'].value = from_date.strftime("%d/%m/%y")
+            ws['B3'].value = to_date.strftime("%d/%m/%y")
+            ws['C7'].value = freedom_units
+            ws['C9'].value = boerdery_units
+            new_buffer = io.BytesIO()
+            wb.save(new_buffer)
+            new_buffer.seek(0)
+            st.download_button(
+                label="Download Updated Invoice",
+                data=new_buffer,
+                file_name=f"Invoice_{from_date.strftime('%b%Y')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+    except Exception as e:
+        st.error(f"Failed to load billing template: {e}")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # ------------------ FOOTER ------------------
 st.markdown("---")
