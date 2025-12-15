@@ -8,6 +8,7 @@ import openpyxl
 from datetime import datetime, timedelta
 import concurrent.futures
 import time  # For retry logic
+
 # ------------------ PAGE CONFIG ------------------
 st.set_page_config(page_title="Durr bottling Electrical analysis", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
 # Initialize theme
@@ -43,7 +44,7 @@ st.markdown(f"<p style='text-align:center; color:{theme['label']}; font-size:18p
 # ------------------ SIDEBAR ------------------
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/1598/1598196.png", width=60)
-    st.markdown("### Fuel SA Client")
+    st.markdown("### Fuel SA client")
     st.success("API Connected")
     st.caption("Trial Key Active – Expires 17 Dec 2025")
     col1, col2 = st.columns([0.7, 0.3])
