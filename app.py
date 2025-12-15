@@ -8,24 +8,21 @@ import openpyxl
 from datetime import datetime, timedelta
 import concurrent.futures
 
-# ------------------ PAGE CONFIG ------------------
 st.set_page_config(page_title="Durr Bottling Electrical Analysis", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
 
-# Initialize theme
 if 'theme' not in st.session_state:
     st.session_state.theme = 'light'
 
-# ------------------ DESIGN SYSTEM ------------------
-if st.session_state.theme == 'dark':
-    theme = {
-        "bg": "#121212", "card": "#1E1E1E", "text": "#E0E0E0", "label": "#A0A0A0",
-        "border": "1px solid #333", "grid": "#333", "accent": "#E74C3C", "success": "#2ECC71"
-    }
-else:
-    theme = {
-        "bg": "#F8F9FA", "card": "#FFFFFF", "text": "#2C3E50", "label": "#7F8C8D",
-        "border": "1px solid #E9ECEF", "grid": "#E9ECEF", "accent": "#E74C3C", "success": "#2ECC71"
-    }
+theme = {
+    "bg": "#121212" if st.session_state.theme == 'dark' else "#F8F9FA",
+    "card": "#1E1E1E" if st.session_state.theme == 'dark' else "#FFFFFF",
+    "text": "#E0E0E0" if st.session_state.theme == 'dark' else "#2C3E50",
+    "label": "#A0A0A0" if st.session_state.theme == 'dark' else "#7F8C8D",
+    "border": "1px solid #333" if st.session_state.theme == 'dark' else "1px solid #E9ECEF",
+    "grid": "#333" if st.session_state.theme == 'dark' else "#E9ECEF",
+    "accent": "#E74C3C",
+    "success": "#2ECC71"
+}
 
 st.markdown(f"""
 <style>
@@ -46,13 +43,10 @@ st.markdown(f"""
 st.markdown("<h1 class='header-title'>Durr Bottling Electrical Analysis</h1>", unsafe_allow_html=True)
 st.markdown(f"<p style='text-align:center; color:{theme['label']}; font-size:18px; margin-bottom:40px;'>Solar • Generator • Factory • Billing Dashboard</p>", unsafe_allow_html=True)
 
-# ------------------ SIDEBAR WITH PREDEFINED RANGES ------------------
 with st.sidebar:
     st.markdown("## ⚡ Durr Bottling")
     st.caption("Electrical & Energy Intelligence")
-
     st.markdown("---")
-
     st.subheader("Appearance")
     col1, col2 = st.columns([0.7, 0.3])
     with col1:
@@ -62,12 +56,9 @@ with st.sidebar:
         if dark_mode != (st.session_state.theme == 'dark'):
             st.session_state.theme = 'dark' if dark_mode else 'light'
             st.rerun()
-
     st.markdown("---")
-
     st.subheader("Date Range")
     preset = st.selectbox("Quick Select", ["Custom", "Last 7 Days", "Last 30 Days", "Last 90 Days", "Year to Date"])
-    
     today = datetime.today().date()
     if preset == "Last 7 Days":
         start_date = today - timedelta(days=6)
@@ -84,46 +75,26 @@ with st.sidebar:
     else:
         start_date = st.date_input("From", datetime(2025, 1, 1))
         end_date = st.date_input("To", today)
-
     if end_date < start_date:
         st.error("End date must be after start date")
         st.stop()
-
     st.markdown("---")
-
     st.subheader("Generator")
-    fuel_region = st.selectbox(
-        "Fuel Region",
-        ["Coast", "Reef"],
-        help="Paarl = Coastal pricing"
-    )
-
+    fuel_region = st.selectbox("Fuel Region", ["Coast", "Reef"], help="Paarl = Coastal pricing")
     st.markdown("---")
-
     st.subheader("Data Overrides")
-    uploaded_gen_file = st.file_uploader(
-        "Upload GEN.csv",
-        type="csv",
-        help="Overrides GitHub generator data"
-    )
+    uploaded_gen_file = st.file_uploader("Upload GEN.csv", type="csv", help="Overrides GitHub generator data")
 
-# ------------------ HISTORICAL DIESEL PRICES (UPDATED FOR DEC 2025) ------------------
 historical_prices = pd.DataFrame({
-    'month': pd.to_datetime([
-        '2025-01-01', '2025-02-01', '2025-03-01', '2025-04-01', '2025-05-01',
-        '2025-06-01', '2025-07-01', '2025-08-01', '2025-09-01', '2025-10-01',
-        '2025-11-01', '2025-12-01'
-    ]),
-    'coast_50ppm': [20.28, 21.62, 21.55, 20.79, 20.57, 17.81, 18.53, 19.20, 19.80, 19.50, 19.00, 19.24],
-    'reef_50ppm': [21.08, 22.42, 22.35, 21.59, 21.37, 18.61, 19.33, 20.00, 20.60, 20.30, 19.80, 20.00]
+    'month': pd.to_datetime(['2025-01-01', '2025-02-01', '2025-03-01', '2025-04-01', '2025-05-01', '2025-06-01', '2025-07-01', '2025-08-01', '2025-09-01', '2025-10-01', '2025-11-01', '2025-12-01']),
+    'coast_50ppm': [20.28, 21.62, 21.55, 20.79, 20.57, 17.81, 18.53, 19.20, 19.80, 19.50, 19.00, 22.52],
+    'reef_50ppm': [21.08, 22.42, 22.35, 21.59, 21.37, 18.61, 19.33, 20.00, 20.60, 20.30, 19.80, 23.32]
 })
 
 price_col = 'coast_50ppm' if fuel_region == "Coast" else 'reef_50ppm'
 historical_prices['price'] = historical_prices[price_col]
-
 current_price = historical_prices.iloc[-1]['price']
 
-# ------------------ DATA LOADING (PARALLEL) ------------------
 SOLAR_URLS = [
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius-Jan.csv",
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goodwe%26Fronius_Feb.csv",
@@ -255,8 +226,8 @@ if all_dfs:
         merged = merged.rename(columns={'index': 'ts'})
 
 if not merged.empty:
-    merged['fronius_kw'] = merged.get('sensor.fronius_grid_power', 0) / 1000
-    merged['goodwe_kw'] = merged.get('sensor.goodwe_grid_power', 0) / 1000
+    merged['fronius_kw'] = merged.get('sensor.fronius_grid_power', pd.Series(0, index=merged.index)) / 1000
+    merged['goodwe_kw'] = merged.get('sensor.goodwe_grid_power', pd.Series(0, index=merged.index)) / 1000
     merged['total_solar'] = merged['fronius_kw'].fillna(0) + merged['goodwe_kw'].fillna(0)
 
 filtered_merged = merged[(merged['ts'] >= pd.to_datetime(start_date)) & (merged['ts'] <= pd.to_datetime(end_date) + timedelta(days=1))] if not merged.empty and 'ts' in merged.columns else pd.DataFrame()
@@ -316,6 +287,11 @@ with tab1:
             hovermode="x unified"
         )
         st.plotly_chart(fig, width='stretch')
+
+        st.markdown("### Fuel Consumption Chart")
+        fig_fuel = px.line(filtered_gen, x='last_changed', y='fuel_used_l', title="Daily Fuel Consumption (L)", markers=True)
+        fig_fuel.update_layout(yaxis_title="Fuel Used (L)", xaxis_title="Date")
+        st.plotly_chart(fig_fuel, width='stretch')
 
         st.download_button("Download Generator Data", filtered_gen.to_csv(index=False).encode(), "generator_data.csv", "text/csv")
 
