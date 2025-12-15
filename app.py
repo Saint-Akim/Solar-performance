@@ -93,7 +93,7 @@ with st.sidebar:
         help="Overrides GitHub generator data"
     )
 
-# ------------------ LIVE FUEL SA API (RELAXED SANITY) ------------------
+# ------------------ LIVE FUEL SA API ------------------
 FUEL_SA_API_KEY = "3ef0bc0e377c48b58aa2c2a4d68dcc30"
 
 @st.cache_data(ttl=3600, show_spinner="Updating current diesel price...")
@@ -113,9 +113,8 @@ def get_current_diesel_price(region):
         if match.empty:
             raise ValueError(f"Region '{region}' not found")
         price = match['price'].iloc[0]
-        # Relaxed: allow up to R50/L (in case API changes format)
-        if price > 50:
-            st.warning(f"API returned unusually high price R{price:.2f}/L — using fallback.")
+        if price > 50:  # Tolerant fallback
+            st.warning(f"API returned high price R{price:.2f}/L — using fallback.")
             return 22.52
         return price
     except Exception as e:
