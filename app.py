@@ -93,7 +93,7 @@ with st.sidebar:
         help="Overrides GitHub generator data"
     )
 
-# ------------------ LIVE FUEL SA API (WITH BETTER FALLBACK) ------------------
+# ------------------ LIVE FUEL SA API (RELAXED SANITY) ------------------
 FUEL_SA_API_KEY = "3ef0bc0e377c48b58aa2c2a4d68dcc30"
 
 @st.cache_data(ttl=3600, show_spinner="Updating current diesel price...")
@@ -113,9 +113,10 @@ def get_current_diesel_price(region):
         if match.empty:
             raise ValueError(f"Region '{region}' not found")
         price = match['price'].iloc[0]
-        # Relaxed sanity check - sometimes API returns higher values, but 1896 is clearly bad
-        if price > 50:  # More tolerant for possible future price increases
-            raise ValueError(f"Invalid price R{price:.2f}/L (too high)")
+        # Relaxed: allow up to R50/L (in case API changes format)
+        if price > 50:
+            st.warning(f"API returned unusually high price R{price:.2f}/L — using fallback.")
+            return 22.52
         return price
     except Exception as e:
         st.warning(f"Fuel SA API issue: {e}. Using fallback R22.52/L.")
@@ -166,23 +167,18 @@ solar_df, gen_github_df, factory_df, kehua_df, weather_df = load_data_engine()
 
 gen_df = pd.read_csv(uploaded_gen_file) if uploaded_gen_file else gen_github_df
 
-# ------------------ GENERATOR PROCESSING (LONG FORMAT WITH CASE-INSENSITIVE MAPPING) ------------------
+# ------------------ GENERATOR PROCESSING (LONG FORMAT SUPPORT) ------------------
 @st.cache_data(show_spinner=False)
 def process_generator_data(_gen_df: pd.DataFrame):
     if _gen_df.empty:
         return pd.DataFrame(), pd.DataFrame()
 
-    # Case-insensitive column mapping
-    cols_lower = {c.lower().strip(): c for c in _gen_df.columns}
-    required_lower = {'entity_id', 'state', 'last_changed'}
-    missing = required_lower - set(cols_lower.keys())
-    if missing:
-        st.error(f"Generator CSV missing required columns: {', '.join(missing)} (found: {list(_gen_df.columns)})")
+    required = {'entity_id', 'state', 'last_changed'}
+    if not required.issubset(_gen_df.columns):
+        st.error(f"Generator CSV missing required columns: {required - set(_gen_df.columns)} (found: {_gen_df.columns.tolist()})")
         return pd.DataFrame(), pd.DataFrame()
 
-    rename_map = {cols_lower[k]: k for k in required_lower}
-    _gen_df = _gen_df.rename(columns=rename_map)[['last_changed', 'entity_id', 'state']]
-
+    _gen_df = _gen_df[['last_changed', 'entity_id', 'state']].copy()
     _gen_df['last_changed'] = pd.to_datetime(_gen_df['last_changed'], utc=True).dt.tz_convert('Africa/Johannesburg').dt.tz_localize(None)
     _gen_df['state'] = pd.to_numeric(_gen_df['state'], errors='coerce')
     _gen_df = _gen_df.dropna(subset=['state']).sort_values('last_changed')
