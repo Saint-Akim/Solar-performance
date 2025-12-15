@@ -43,7 +43,7 @@ st.markdown(f"""
 st.markdown("<h1 class='header-title'>Durr Bottling Electrical Analysis</h1>", unsafe_allow_html=True)
 st.markdown(f"<p style='text-align:center; color:{theme['label']}; font-size:18px; margin-bottom:40px;'>Solar • Generator • Factory • Billing Dashboard</p>", unsafe_allow_html=True)
 
-# ------------------ SIDEBAR (REFINED & PROFESSIONAL) ------------------
+# ------------------ SIDEBAR (FIXED: NON-EMPTY LABEL FOR TOGGLE) ------------------
 with st.sidebar:
     st.markdown("## ⚡ Durr Bottling")
     st.caption("Electrical & Energy Intelligence")
@@ -59,7 +59,7 @@ with st.sidebar:
     with col1:
         st.caption("Dark Mode")
     with col2:
-        dark_mode = st.toggle("", value=(st.session_state.theme == 'dark'), key="theme_toggle")
+        dark_mode = st.toggle("Toggle dark mode", value=(st.session_state.theme == 'dark'), key="theme_toggle")
         if dark_mode != (st.session_state.theme == 'dark'):
             st.session_state.theme = 'dark' if dark_mode else 'light'
             st.rerun()
@@ -112,7 +112,6 @@ def get_current_diesel_price(region):
         if match.empty:
             raise ValueError(f"Region '{region}' not found")
         price = match['price'].iloc[0]
-        # Sanity check for absurd values
         if price > 100 or price < 10:
             raise ValueError(f"Invalid price R{price:.2f}/L")
         return price
@@ -170,7 +169,6 @@ def process_generator_data(_gen_df: pd.DataFrame):
     if _gen_df.empty:
         return pd.DataFrame(), pd.DataFrame()
 
-    # Case-insensitive column mapping
     cols_lower = {c.lower().strip(): c for c in _gen_df.columns}
     required_lower = {'entity_id', 'state', 'last_changed'}
     missing = required_lower - set(cols_lower.keys())
@@ -181,7 +179,6 @@ def process_generator_data(_gen_df: pd.DataFrame):
     rename_map = {cols_lower[k]: k for k in required_lower}
     _gen_df = _gen_df.rename(columns=rename_map)
 
-    # Select and process
     _gen_df = _gen_df[['last_changed', 'entity_id', 'state']].copy()
     _gen_df['last_changed'] = pd.to_datetime(_gen_df['last_changed'], utc=True).dt.tz_convert('Africa/Johannesburg').dt.tz_localize(None)
     _gen_df['state'] = pd.to_numeric(_gen_df['state'], errors='coerce')
@@ -244,7 +241,6 @@ with tab1:
         avg_eff = filtered_gen['fuel_efficiency'].mean()
         avg_l_per_kwh = filtered_gen['fuel_per_kwh'].mean()
 
-        # KPI Cards
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
@@ -272,7 +268,6 @@ with tab1:
             st.markdown(f"<div class='metric-val'>{eff_text}</div>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-        # Trends
         st.markdown("### 📈 Daily Generator Trends")
         st.caption("Fuel consumption, runtime and estimated cost")
 
@@ -304,8 +299,6 @@ with tab1:
         st.info("No generator data available for selected period or upload a GEN.csv file.")
 
     st.markdown("</div>", unsafe_allow_html=True)
-
-# Keep other tabs as placeholders or your existing code...
 
 # ------------------ FOOTER ------------------
 st.markdown("---")
