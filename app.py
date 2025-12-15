@@ -171,13 +171,18 @@ def process_generator_data(_gen_df: pd.DataFrame):
     if _gen_df.empty:
         return pd.DataFrame(), pd.DataFrame()
 
-    # Long format: entity_id, state, last_changed
-    required = {'entity_id', 'state', 'last_changed'}
-    if not required.issubset(_gen_df.columns):
-        st.error(f"Generator CSV missing columns {required - set(_gen_df.columns)} (found: {_gen_df.columns.tolist()})")
+    # Flexible column check (case-insensitive)
+    cols_lower = {c.lower().strip(): c for c in _gen_df.columns}
+    required_lower = {'entity_id', 'state', 'last_changed'}
+    missing = required_lower - set(cols_lower.keys())
+    if missing:
+        st.error(f"Generator CSV missing required columns: {', '.join(missing)} (found: {list(_gen_df.columns)})")
         return pd.DataFrame(), pd.DataFrame()
 
-    _gen_df = _gen_df[['last_changed', 'entity_id', 'state']].copy()
+    # Map to standard names
+    rename_map = {cols_lower[k]: k for k in required_lower}
+    _gen_df = _gen_df.rename(columns=rename_map)[['last_changed', 'entity_id', 'state']]
+
     _gen_df['last_changed'] = pd.to_datetime(_gen_df['last_changed'], utc=True).dt.tz_convert('Africa/Johannesburg').dt.tz_localize(None)
     _gen_df['state'] = pd.to_numeric(_gen_df['state'], errors='coerce')
     _gen_df = _gen_df.dropna(subset=['state']).sort_values('last_changed')
