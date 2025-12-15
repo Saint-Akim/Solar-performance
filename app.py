@@ -107,15 +107,15 @@ with st.sidebar:
         help="Overrides GitHub generator data"
     )
 
-# ------------------ HISTORICAL DIESEL PRICES (2025) ------------------
+# ------------------ HISTORICAL DIESEL PRICES (UPDATED FOR DEC 2025) ------------------
 historical_prices = pd.DataFrame({
     'month': pd.to_datetime([
         '2025-01-01', '2025-02-01', '2025-03-01', '2025-04-01', '2025-05-01',
         '2025-06-01', '2025-07-01', '2025-08-01', '2025-09-01', '2025-10-01',
         '2025-11-01', '2025-12-01'
     ]),
-    'coast_50ppm': [20.28, 21.62, 21.55, 20.79, 20.57, 17.81, 18.53, 19.20, 19.80, 19.50, 19.00, 22.52],
-    'reef_50ppm': [21.08, 22.42, 22.35, 21.59, 21.37, 18.61, 19.33, 20.00, 20.60, 20.30, 19.80, 23.32]
+    'coast_50ppm': [20.28, 21.62, 21.55, 20.79, 20.57, 17.81, 18.53, 19.20, 19.80, 19.50, 19.00, 19.24],
+    'reef_50ppm': [21.08, 22.42, 22.35, 21.59, 21.37, 18.61, 19.33, 20.00, 20.60, 20.30, 19.80, 20.00]
 })
 
 price_col = 'coast_50ppm' if fuel_region == "Coast" else 'reef_50ppm'
@@ -227,7 +227,7 @@ if not daily_gen.empty:
 else:
     filtered_gen = pd.DataFrame()
 
-# ------------------ MERGED DATA ------------------
+# ------------------ MERGED DATA WITH SAFE 'ts' ------------------
 def get_time_column(df):
     for col in df.columns:
         if 'last_changed' in col.lower():
@@ -255,13 +255,11 @@ if all_dfs:
         merged = merged.rename(columns={'index': 'ts'})
 
 if not merged.empty:
-    if 'sensor.fronius_grid_power' in merged.columns:
-        merged['fronius_kw'] = merged['sensor.fronius_grid_power'] / 1000
-    if 'sensor.goodwe_grid_power' in merged.columns:
-        merged['goodwe_kw'] = merged['sensor.goodwe_grid_power'] / 1000
-    merged['total_solar'] = merged.get('fronius_kw', 0).fillna(0) + merged.get('goodwe_kw', 0).fillna(0) + merged.get('total_pv_power_kw', 0).fillna(0)
+    merged['fronius_kw'] = merged.get('sensor.fronius_grid_power', 0) / 1000
+    merged['goodwe_kw'] = merged.get('sensor.goodwe_grid_power', 0) / 1000
+    merged['total_solar'] = merged['fronius_kw'].fillna(0) + merged['goodwe_kw'].fillna(0)
 
-filtered_merged = merged[(merged['ts'] >= pd.to_datetime(start_date)) & (merged['ts'] <= pd.to_datetime(end_date) + timedelta(days=1))] if not merged.empty else pd.DataFrame()
+filtered_merged = merged[(merged['ts'] >= pd.to_datetime(start_date)) & (merged['ts'] <= pd.to_datetime(end_date) + timedelta(days=1))] if not merged.empty and 'ts' in merged.columns else pd.DataFrame()
 
 # ------------------ TABS ------------------
 tab1, tab2, tab3, tab4 = st.tabs(["Generator Analysis", "Solar Performance", "Factory Load", "Billing Editor"])
@@ -349,7 +347,6 @@ with tab2:
 
         st.success(f"Peak Solar Output: {filtered_merged['total_solar'].max():.1f} kW")
 
-        # Hourly heatmap
         filtered_merged['hour'] = filtered_merged['ts'].dt.hour
         heatmap_data = filtered_merged.groupby('hour')['total_solar'].mean().reset_index()
         fig_heat = px.bar(heatmap_data, x='hour', y='total_solar', title="Average Solar Output by Hour of Day")
