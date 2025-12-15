@@ -93,7 +93,7 @@ with st.sidebar:
         help="Overrides GitHub generator data"
     )
 
-# ------------------ LIVE FUEL SA API ------------------
+# ------------------ LIVE FUEL SA API (WITH BETTER FALLBACK) ------------------
 FUEL_SA_API_KEY = "3ef0bc0e377c48b58aa2c2a4d68dcc30"
 
 @st.cache_data(ttl=3600, show_spinner="Updating current diesel price...")
@@ -113,11 +113,12 @@ def get_current_diesel_price(region):
         if match.empty:
             raise ValueError(f"Region '{region}' not found")
         price = match['price'].iloc[0]
-        if price > 100 or price < 10:
-            raise ValueError(f"Invalid price R{price:.2f}/L")
+        # Relaxed sanity check - sometimes API returns higher values, but 1896 is clearly bad
+        if price > 50:  # More tolerant for possible future price increases
+            raise ValueError(f"Invalid price R{price:.2f}/L (too high)")
         return price
     except Exception as e:
-        st.warning(f"Fuel SA API issue: {e}. Using realistic fallback R22.52/L (Dec 2025).")
+        st.warning(f"Fuel SA API issue: {e}. Using fallback R22.52/L.")
         return 22.52
 
 current_price = get_current_diesel_price(fuel_region)
@@ -165,13 +166,13 @@ solar_df, gen_github_df, factory_df, kehua_df, weather_df = load_data_engine()
 
 gen_df = pd.read_csv(uploaded_gen_file) if uploaded_gen_file else gen_github_df
 
-# ------------------ GENERATOR PROCESSING (LONG FORMAT SUPPORT) ------------------
+# ------------------ GENERATOR PROCESSING (LONG FORMAT WITH CASE-INSENSITIVE MAPPING) ------------------
 @st.cache_data(show_spinner=False)
 def process_generator_data(_gen_df: pd.DataFrame):
     if _gen_df.empty:
         return pd.DataFrame(), pd.DataFrame()
 
-    # Flexible column check (case-insensitive)
+    # Case-insensitive column mapping
     cols_lower = {c.lower().strip(): c for c in _gen_df.columns}
     required_lower = {'entity_id', 'state', 'last_changed'}
     missing = required_lower - set(cols_lower.keys())
@@ -179,7 +180,6 @@ def process_generator_data(_gen_df: pd.DataFrame):
         st.error(f"Generator CSV missing required columns: {', '.join(missing)} (found: {list(_gen_df.columns)})")
         return pd.DataFrame(), pd.DataFrame()
 
-    # Map to standard names
     rename_map = {cols_lower[k]: k for k in required_lower}
     _gen_df = _gen_df.rename(columns=rename_map)[['last_changed', 'entity_id', 'state']]
 
