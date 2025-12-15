@@ -161,20 +161,10 @@ def load_data_engine():
     gen_df = results[len(SOLAR_URLS)]
     factory_df = results[len(SOLAR_URLS)+1]
     kehua_df = results[len(SOLAR_URLS)+2]
-    history_df = results[-1]  # Solar PV power data
+    history_df = results[-1]
     return solar_df, gen_df, factory_df, kehua_df, history_df
 
 solar_df, gen_github_df, factory_df, kehua_df, history_df = load_data_engine()
-
-# Merge history_df (additional solar PV power) into solar_df
-if not history_df.empty:
-    # Assume history_df is long format with entity_id = sensor.total_pv_power_kw
-    if {'last_changed', 'state', 'entity_id'}.issubset(history_df.columns):
-        history_df['last_changed'] = pd.to_datetime(history_df['last_changed'], utc=True).dt.tz_convert('Africa/Johannesburg').dt.tz_localize(None)
-        history_df['state'] = pd.to_numeric(history_df['state'], errors='coerce')
-        history_pivot = history_df.pivot_table(index='last_changed', columns='entity_id', values='state', aggfunc='mean').reset_index()
-        history_pivot.rename(columns={'sensor.total_pv_power_kw': 'total_pv_power_kw'}, inplace=True)
-        solar_df = pd.concat([solar_df, history_pivot], ignore_index=True)
 
 gen_df = pd.read_csv(uploaded_gen_file) if uploaded_gen_file else gen_github_df
 
@@ -244,7 +234,7 @@ def get_time_column(df):
             return col
     return None
 
-all_dfs = [df for df in [solar_df, factory_df, kehua_df] if not df.empty]
+all_dfs = [df for df in [solar_df, factory_df, kehua_df, history_df] if not df.empty]
 merged = pd.DataFrame()
 if all_dfs:
     base_df = all_dfs[0].copy()
@@ -261,14 +251,15 @@ if all_dfs:
                 df.index = pd.to_datetime(df.index)
                 df = df.sort_index()
                 merged = pd.merge_asof(merged, df, left_index=True, right_index=True, direction='nearest', tolerance=pd.Timedelta('1h'))
-        merged = merged.reset_index().rename(columns={'index': 'ts'})
+        merged = merged.reset_index()
+        merged = merged.rename(columns={'index': 'ts'})
 
 if not merged.empty:
     if 'sensor.fronius_grid_power' in merged.columns:
         merged['fronius_kw'] = merged['sensor.fronius_grid_power'] / 1000
     if 'sensor.goodwe_grid_power' in merged.columns:
         merged['goodwe_kw'] = merged['sensor.goodwe_grid_power'] / 1000
-    merged['total_solar'] = merged.get('fronius_kw', 0).fillna(0) + merged.get('goodwe_kw', 0).fillna(0)
+    merged['total_solar'] = merged.get('fronius_kw', 0).fillna(0) + merged.get('goodwe_kw', 0).fillna(0) + merged.get('total_pv_power_kw', 0).fillna(0)
 
 filtered_merged = merged[(merged['ts'] >= pd.to_datetime(start_date)) & (merged['ts'] <= pd.to_datetime(end_date) + timedelta(days=1))] if not merged.empty else pd.DataFrame()
 
@@ -347,28 +338,27 @@ with tab1:
 # ==================== SOLAR PERFORMANCE TAB ====================
 with tab2:
     st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
-    if not filtered_merged.empty:
-        st.markdown("### Total Solar Output (Combined Fronius + Goodwe + History)")
+    if not filtered_merged.empty and 'total_solar' in filtered_merged.columns:
         fig = go.Figure(go.Scatter(
             x=filtered_merged['ts'], y=filtered_merged['total_solar'],
-            mode='lines', name='Total Solar (kW)',
+            mode='lines', name='Total Solar Output',
             line=dict(color=theme['success'], width=3)
         ))
-        fig.update_layout(title="Solar Power Output", height=500)
+        fig.update_layout(title="Solar Power Output (kW)", height=500)
         st.plotly_chart(fig, width='stretch')
 
         st.success(f"Peak Solar Output: {filtered_merged['total_solar'].max():.1f} kW")
 
         # Hourly heatmap
         filtered_merged['hour'] = filtered_merged['ts'].dt.hour
-        heatmap = filtered_merged.groupby('hour')['total_solar'].mean().reset_index()
-        fig_heat = px.imshow(heatmap['total_solar'].values.reshape(1, -1), x=list(range(24)), y=["Avg kW"], title="Average Solar Output by Hour")
+        heatmap_data = filtered_merged.groupby('hour')['total_solar'].mean().reset_index()
+        fig_heat = px.bar(heatmap_data, x='hour', y='total_solar', title="Average Solar Output by Hour of Day")
         st.plotly_chart(fig_heat, width='stretch')
 
         st.download_button("Download Solar Data", filtered_merged.to_csv(index=False).encode(), "solar_data.csv", "text/csv")
 
     else:
-        st.info("No solar data available.")
+        st.info("No solar data in selected period.")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ==================== FACTORY LOAD TAB ====================
@@ -388,10 +378,10 @@ with tab3:
 
                 fig = go.Figure(go.Scatter(
                     x=factory_filtered['last_changed'], y=factory_filtered['daily_kwh'],
-                    mode='lines+markers', name='Daily Consumption',
+                    mode='lines+markers', name='Daily Factory Consumption',
                     line=dict(color="#3498DB", width=3)
                 ))
-                fig.update_layout(title="Factory Daily Energy Consumption (kWh)", height=500)
+                fig.update_layout(title="Daily Factory Energy Consumption (kWh)", height=500)
                 st.plotly_chart(fig, width='stretch')
 
                 st.metric("Total Factory kWh", f"{factory_filtered['daily_kwh'].sum():,.0f} kWh")
@@ -399,11 +389,11 @@ with tab3:
                 st.download_button("Download Factory Data", factory_filtered.to_csv(index=False).encode(), "factory_data.csv", "text/csv")
 
             else:
-                st.info("Factory sensor not found.")
+                st.info("Factory cumulative kWh sensor not found.")
         else:
-            st.info("No timestamp in factory data.")
+            st.info("No timestamp column in factory data.")
     else:
-        st.info("No factory data available.")
+        st.info("No factory consumption data available.")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ==================== BILLING EDITOR TAB ====================
