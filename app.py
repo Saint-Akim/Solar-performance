@@ -6,6 +6,7 @@ import io
 import openpyxl
 from datetime import datetime, timedelta
 import concurrent.futures
+import plotly.express as px
 
 # ------------------ PAGE CONFIG ------------------
 st.set_page_config(page_title="Durr Bottling Electrical Analysis", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
@@ -50,9 +51,6 @@ with st.sidebar:
     st.markdown("## ⚡ Durr Bottling")
     st.caption("Electrical & Energy Intelligence")
 
-    st.success("Fuel SA API Connected")
-    st.caption("Trial Key • Expires 17 Dec 2025")
-
     st.markdown("---")
 
     st.subheader("Appearance")
@@ -93,44 +91,21 @@ with st.sidebar:
         help="Overrides GitHub generator data"
     )
 
-# ------------------ LIVE FUEL SA API ------------------
-FUEL_SA_API_KEY = "3ef0bc0e377c48b58aa2c2a4d68dcc30"
-
-@st.cache_data(ttl=3600, show_spinner="Updating current diesel price...")
-def get_current_diesel_price(region):
-    try:
-        headers = {'key': FUEL_SA_API_KEY}
-        response = requests.get('https://api.fuelsa.co.za/exapi/fuel/current', headers=headers, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        prices = []
-        for item in data.get('diesel', []):
-            location = item['location'].lower()
-            value = float(item['value'])
-            prices.append({"location": location, "price": value})
-        df = pd.DataFrame(prices)
-        match = df[df['location'] == region.lower()]
-        if match.empty:
-            raise ValueError(f"Region '{region}' not found")
-        price = match['price'].iloc[0]
-        if price > 50:
-            st.warning(f"API returned high price R{price:.2f}/L — using fallback.")
-            return 22.52
-        return price
-    except Exception as e:
-        st.warning(f"Fuel SA API issue: {e}. Using fallback R22.52/L.")
-        return 22.52
-
-current_price = get_current_diesel_price(fuel_region)
-
-# ------------------ HISTORICAL DIESEL PRICE TRENDS ------------------
+# ------------------ HISTORICAL DIESEL PRICES (2025) ------------------
 historical_prices = pd.DataFrame({
-    'month': pd.date_range(start='2025-01-01', end='2025-12-01', freq='MS'),
-    'price_coast': [20.50, 21.00, 20.76, 20.50, 20.52, 18.70, 19.50, 20.00, 19.80, 19.50, 19.00, 22.52],  # Approximate from available data
-    'price_reef': [21.30, 21.80, 21.56, 21.30, 21.32, 19.50, 20.30, 20.80, 20.60, 20.30, 19.80, 23.32]   # + ~0.80 inland difference
+    'month': pd.to_datetime([
+        '2025-01-01', '2025-02-01', '2025-03-01', '2025-04-01', '2025-05-01',
+        '2025-06-01', '2025-07-01', '2025-08-01', '2025-09-01', '2025-10-01',
+        '2025-11-01', '2025-12-01'
+    ]),
+    'coast_50ppm': [20.28, 21.62, 21.55, 20.79, 20.57, 17.81, 18.53, 19.20, 19.80, 19.50, 19.00, 22.52],
+    'reef_50ppm': [21.08, 22.42, 22.35, 21.59, 21.37, 18.61, 19.33, 20.00, 20.60, 20.30, 19.80, 23.32]
 })
 
-historical_prices['price_region'] = historical_prices['price_coast' if fuel_region == "Coast" else 'price_reef']
+price_col = 'coast_50ppm' if fuel_region == "Coast" else 'reef_50ppm'
+historical_prices['price'] = historical_prices[price_col]
+
+current_price = historical_prices.iloc[-1]['price']
 
 # ------------------ DATA LOADING ------------------
 NEW_GEN_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/gen%20(2).csv"
@@ -179,7 +154,7 @@ solar_df, gen_github_df, factory_df, kehua_df, weather_df = load_data_engine()
 
 gen_df = pd.read_csv(uploaded_gen_file) if uploaded_gen_file else gen_github_df
 
-# ------------------ GENERATOR PROCESSING ------------------
+# ------------------ GENERATOR PROCESSING WITH ENHANCED FEATURES ------------------
 @st.cache_data(show_spinner=False)
 def process_generator_data(_gen_df: pd.DataFrame):
     if _gen_df.empty:
@@ -221,9 +196,10 @@ def process_generator_data(_gen_df: pd.DataFrame):
         'fuel_efficiency': 'mean'
     }).reset_index()
 
-    # Use historical prices for accurate cost
-    daily = daily.merge(historical_prices[['month', 'price_region']], left_on=pd.Grouper(key='last_changed', freq='MS'), right_on='month', how='left')
-    daily['daily_cost_r'] = daily['fuel_used_l'] * daily['price_region'].fillna(current_price)
+    daily['month_start'] = daily['last_changed'].dt.to_period('M').dt.start_time
+    daily = daily.merge(historical_prices[['month', 'price']], left_on='month_start', right_on='month', how='left')
+    daily['daily_cost_r'] = daily['fuel_used_l'] * daily['price'].fillna(current_price)
+    daily = daily.drop(columns=['month', 'month_start'])
 
     return daily, pivot.reset_index()
 
@@ -237,6 +213,38 @@ if not daily_gen.empty:
 else:
     filtered_gen = pd.DataFrame()
 
+# ------------------ MERGED DATA FOR OTHER TABS ------------------
+def get_time_column(df):
+    for col in df.columns:
+        if 'last_changed' in col.lower():
+            return col
+    return None
+
+all_dfs = [df for df in [solar_df, factory_df, kehua_df, weather_df] if not df.empty]
+merged = pd.DataFrame()
+if all_dfs:
+    base_df = all_dfs[0].copy()
+    time_col = get_time_column(base_df)
+    if time_col:
+        base_df['ts'] = pd.to_datetime(base_df[time_col])
+        base_df = base_df.sort_values('ts')
+        merged = base_df.copy()
+        for df in all_dfs[1:]:
+            col = get_time_column(df)
+            if col:
+                df['ts'] = pd.to_datetime(df[col])
+                df = df.sort_values('ts')
+                merged = pd.merge_asof(merged, df, on='ts', direction='nearest', tolerance=pd.Timedelta('1h'))
+
+if not merged.empty:
+    if 'sensor.fronius_grid_power' in merged.columns:
+        merged['fronius_kw'] = merged['sensor.fronius_grid_power'] / 1000
+    if 'sensor.goodwe_grid_power' in merged.columns:
+        merged['goodwe_kw'] = merged['sensor.goodwe_grid_power'] / 1000
+    merged['total_solar'] = merged.get('fronius_kw', 0).fillna(0) + merged.get('goodwe_kw', 0).fillna(0)
+
+filtered_merged = merged[(merged['ts'] >= pd.to_datetime(start_date)) & (merged['ts'] <= pd.to_datetime(end_date) + timedelta(days=1))] if not merged.empty else pd.DataFrame()
+
 # ------------------ TABS ------------------
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["Generator Analysis", "Solar Performance", "Factory Load", "Billing Editor", "Fuel Price Trends"])
 
@@ -247,17 +255,25 @@ with tab1:
 
     st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
     st.markdown(f"### Current Diesel Price: **R {current_price:.2f}/L** ({fuel_region})")
-    st.caption("⚠️ Historical costs use monthly average prices for accuracy")
+    st.caption("⚠️ Costs use accurate monthly historical prices for 2025 (50ppm diesel)")
 
     if not filtered_gen.empty:
-        period_fuel = filtered_gen['fuel_used_l'].sum()
-        period_runtime = filtered_gen['runtime_used_h'].sum()
-        period_cost = filtered_gen['daily_cost_r'].sum()
-        avg_eff = filtered_gen['fuel_efficiency'].mean()
-        avg_l_per_kwh = filtered_gen['fuel_per_kwh'].mean()
+        # Multi-select for generator entities
+        available_entities = [c for c in full_gen_pivot.columns if c.startswith('sensor.generator_')]
+        selected_entities = st.multiselect("Select Generator Sensors", available_entities, default=available_entities)
 
+        # Efficiency threshold filter
+        eff_threshold = st.slider("Minimum Fuel Efficiency (kWh/L)", 0.0, 10.0, 3.0, 0.1)
+        filtered_gen_eff = filtered_gen[filtered_gen['fuel_efficiency'] >= eff_threshold]
+
+        period_fuel = filtered_gen_eff['fuel_used_l'].sum()
+        period_runtime = filtered_gen_eff['runtime_used_h'].sum()
+        period_cost = filtered_gen_eff['daily_cost_r'].sum()
+        avg_eff = filtered_gen_eff['fuel_efficiency'].mean()
+        avg_l_per_kwh = filtered_gen_eff['fuel_per_kwh'].mean()
+
+        # KPI Cards
         col1, col2, col3, col4 = st.columns(4)
-
         with col1:
             st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
             st.markdown("<div class='metric-lbl'>Total Cost</div>", unsafe_allow_html=True)
@@ -283,13 +299,19 @@ with tab1:
             st.markdown(f"<div class='metric-val'>{eff_text}</div>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
+        # Anomaly Alert
+        low_eff_days = filtered_gen[filtered_gen['fuel_efficiency'] < eff_threshold]
+        if not low_eff_days.empty:
+            st.warning(f"⚠️ Low efficiency (< {eff_threshold} kWh/L) on {len(low_eff_days)} day(s)")
+
+        # Daily Trends Chart
         st.markdown("### 📈 Daily Generator Trends")
         st.caption("Fuel consumption, runtime and estimated cost")
 
         fig = go.Figure()
-        fig.add_trace(go.Bar(x=filtered_gen['last_changed'], y=filtered_gen['fuel_used_l'], name="Daily Fuel (L)", marker_color="orange"))
-        fig.add_trace(go.Scatter(x=filtered_gen['last_changed'], y=filtered_gen['runtime_used_h'], name="Runtime (h)", mode="lines+markers", yaxis="y2", line=dict(color="lightblue")))
-        fig.add_trace(go.Scatter(x=filtered_gen['last_changed'], y=filtered_gen['daily_cost_r'], name="Daily Cost (R)", mode="lines+markers", yaxis="y3", line=dict(color=theme['accent'], width=4)))
+        fig.add_trace(go.Bar(x=filtered_gen_eff['last_changed'], y=filtered_gen_eff['fuel_used_l'], name="Daily Fuel (L)", marker_color="orange"))
+        fig.add_trace(go.Scatter(x=filtered_gen_eff['last_changed'], y=filtered_gen_eff['runtime_used_h'], name="Runtime (h)", mode="lines+markers", yaxis="y2", line=dict(color="lightblue")))
+        fig.add_trace(go.Scatter(x=filtered_gen_eff['last_changed'], y=filtered_gen_eff['daily_cost_r'], name="Daily Cost (R)", mode="lines+markers", yaxis="y3", line=dict(color=theme['accent'], width=4)))
 
         fig.update_layout(
             title="Generator Daily Fuel Burn, Runtime & Estimated Cost",
@@ -301,8 +323,17 @@ with tab1:
         )
         st.plotly_chart(fig, use_container_width=True)
 
+        # Export
+        csv = filtered_gen_eff.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="Download Filtered Generator Data as CSV",
+            data=csv,
+            file_name=f"generator_data_{start_date}_to_{end_date}.csv",
+            mime="text/csv"
+        )
+
         with st.expander("📄 View Daily Generator Data"):
-            st.dataframe(filtered_gen.style.format({
+            st.dataframe(filtered_gen_eff.style.format({
                 'fuel_used_l': '{:.1f}',
                 'runtime_used_h': '{:.2f}',
                 'daily_cost_r': 'R {:.0f}',
@@ -319,14 +350,48 @@ with tab1:
 with tab2:
     st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
     if not filtered_merged.empty and 'total_solar' in filtered_merged.columns:
+        # Inverter selection
+        inverter_cols = [c for c in filtered_merged.columns if 'kw' in c.lower()]
+        selected_inverters = st.multiselect("Select Inverter(s)", inverter_cols, default=inverter_cols)
+
+        solar_filtered = filtered_merged[['ts'] + selected_inverters + ['total_solar']]
+
+        # Aggregation
+        agg_period = st.selectbox("Aggregation Period", ["Hourly", "Daily", "Monthly"])
+        if agg_period == "Daily":
+            solar_agg = solar_filtered.set_index('ts').resample('D').sum().reset_index()
+        elif agg_period == "Monthly":
+            solar_agg = solar_filtered.set_index('ts').resample('M').sum().reset_index()
+        else:
+            solar_agg = solar_filtered
+
         fig = go.Figure(go.Scatter(
-            x=filtered_merged['ts'], y=filtered_merged['total_solar'],
+            x=solar_agg['ts'], y=solar_agg['total_solar'],
             mode='lines', name='Total Solar Output',
             line=dict(color=theme['success'], width=3)
         ))
-        fig.update_layout(title="Solar Power Output (kW)", height=500)
+        fig.update_layout(title=f"Solar Power Output ({agg_period})", height=500)
         st.plotly_chart(fig, use_container_width=True)
-        st.success(f"Peak Solar Output: {filtered_merged['total_solar'].max():.1f} kW")
+
+        st.success(f"Peak Solar Output: {solar_agg['total_solar'].max():.1f} kW")
+        st.metric("Total Solar kWh Generated", f"{solar_agg['total_solar'].sum():,.0f} kWh")
+
+        # Hourly Heatmap
+        st.markdown("### Hourly Solar Output Heatmap")
+        solar_filtered['hour'] = solar_filtered['ts'].dt.hour
+        heatmap_data = solar_filtered.groupby('hour')['total_solar'].mean().reset_index()
+        fig_heat = px.bar(heatmap_data, x='hour', y='total_solar', title="Average Solar Output by Hour of Day")
+        st.plotly_chart(fig_heat, use_container_width=True)
+
+        # Export
+        csv_solar = solar_agg.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="Download Solar Data as CSV",
+            data=csv_solar,
+            file_name=f"solar_data_{start_date}_to_{end_date}.csv",
+            mime="text/csv"
+        )
+
     else:
         st.info("No solar data in selected period.")
     st.markdown("</div>", unsafe_allow_html=True)
@@ -345,13 +410,46 @@ with tab3:
                     (factory_filtered['last_changed'].dt.date >= start_date) &
                     (factory_filtered['last_changed'].dt.date <= end_date)
                 ]
+
+                # Aggregation
+                agg_period_factory = st.selectbox("Factory Aggregation", ["Daily", "Weekly", "Monthly"], key="factory_agg")
+                if agg_period_factory == "Weekly":
+                    factory_agg = factory_filtered.set_index('last_changed').resample('W').sum().reset_index()
+                elif agg_period_factory == "Monthly":
+                    factory_agg = factory_filtered.set_index('last_changed').resample('M').sum().reset_index()
+                else:
+                    factory_agg = factory_filtered
+
                 fig = go.Figure(go.Scatter(
-                    x=factory_filtered['last_changed'], y=factory_filtered['daily_kwh'],
-                    mode='lines+markers', name='Daily Factory Consumption',
+                    x=factory_agg['last_changed'], y=factory_agg['daily_kwh'],
+                    mode='lines+markers', name='Factory Consumption',
                     line=dict(color="#3498DB", width=3)
                 ))
-                fig.update_layout(title="Daily Factory Energy Consumption (kWh)", height=500)
+                fig.update_layout(title=f"Factory Energy Consumption ({agg_period_factory})", height=500)
                 st.plotly_chart(fig, use_container_width=True)
+
+                st.metric("Total Factory kWh", f"{factory_agg['daily_kwh'].sum():,.0f} kWh")
+
+                # Hourly heatmap
+                st.markdown("### Hourly Factory Load Heatmap")
+                factory_hourly = factory_df.copy()
+                factory_hourly['last_changed'] = pd.to_datetime(factory_hourly['last_changed'])
+                factory_hourly['hour'] = factory_hourly['last_changed'].dt.hour
+                if 'sensor.bottling_factory_monthkwhtotal' in factory_hourly.columns:
+                    factory_hourly['hourly_diff'] = factory_hourly['sensor.bottling_factory_monthkwhtotal'].diff().clip(lower=0)
+                    heatmap_factory = factory_hourly.groupby('hour')['hourly_diff'].mean().reset_index()
+                    fig_heat_factory = px.bar(heatmap_factory, x='hour', y='hourly_diff', title="Average Hourly Factory Load")
+                    st.plotly_chart(fig_heat_factory, use_container_width=True)
+
+                # Export
+                csv_factory = factory_agg.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="Download Factory Data as CSV",
+                    data=csv_factory,
+                    file_name=f"factory_data_{start_date}_to_{end_date}.csv",
+                    mime="text/csv"
+                )
+
             else:
                 st.info("Factory cumulative kWh sensor not found.")
         else:
@@ -404,24 +502,30 @@ with tab4:
 # ==================== FUEL PRICE TRENDS TAB ====================
 with tab5:
     st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
-    st.markdown("## ⛽ Historical Diesel Price Trends (2025)")
-    st.caption("Monthly average prices (Coast vs Reef/Inland). Source: Approximate from DMRE announcements & market data.")
+    st.markdown("## ⛽ Diesel Price Trends 2025 (50ppm)")
+    st.caption("Monthly retail prices based on official DMRE & market data (coast vs reef/inland).")
 
-    fig_price = go.Figure()
-    fig_price.add_trace(go.Scatter(x=historical_prices['month'], y=historical_prices['price_coast'], mode='lines+markers', name='Coast', line=dict(color=theme['success'])))
-    fig_price.add_trace(go.Scatter(x=historical_prices['month'], y=historical_prices['price_reef'], mode='lines+markers', name='Reef/Inland', line=dict(color=theme['accent'])))
-    fig_price.update_layout(
-        title="Diesel Price per Litre (R) - 2025",
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=historical_prices['month'], y=historical_prices['coast_50ppm'], mode='lines+markers', name='Coast', line=dict(color=theme['success'])))
+    fig.add_trace(go.Scatter(x=historical_prices['month'], y=historical_prices['reef_50ppm'], mode='lines+markers', name='Reef/Inland', line=dict(color=theme['accent'])))
+    fig.update_layout(
+        title="Diesel 50ppm Price per Litre (R) - 2025",
         xaxis_title="Month",
         yaxis_title="Price (R/L)",
         hovermode="x unified"
     )
-    st.plotly_chart(fig_price, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True)
 
-    st.dataframe(historical_prices.style.format({
-        'price_coast': 'R {:.2f}',
-        'price_reef': 'R {:.2f}'
-    }).rename(columns={'month': 'Month', 'price_coast': 'Coast (R/L)', 'price_reef': 'Reef/Inland (R/L)'}))
+    display_df = historical_prices.copy()
+    display_df['month'] = display_df['month'].dt.strftime('%B %Y')
+    st.dataframe(display_df[['month', 'coast_50ppm', 'reef_50ppm']].style.format({
+        'coast_50ppm': 'R {:.2f}',
+        'reef_50ppm': 'R {:.2f}'
+    }).rename(columns={
+        'month': 'Month',
+        'coast_50ppm': 'Coast (R/L)',
+        'reef_50ppm': 'Reef/Inland (R/L)'
+    }))
 
     st.markdown("</div>", unsafe_allow_html=True)
 
