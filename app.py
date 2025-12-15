@@ -7,8 +7,7 @@ import io
 import openpyxl
 from datetime import datetime, timedelta
 import concurrent.futures
-import time  # For retry logic
-
+import time # For retry logic
 # ------------------ PAGE CONFIG ------------------
 st.set_page_config(page_title="Durr bottling Electrical analysis", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
 # Initialize theme
