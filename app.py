@@ -122,41 +122,72 @@ current_price = get_current_diesel_price(fuel_region)
 
 # ------------------ DATA LOADING ------------------
 NEW_GEN_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/gen%20(2).csv"
-SOLAR_URLS = [  # (keep your list)
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius-Jan.csv",
-    # ... the rest
+SOLAR_URLS = [
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fron0ius-Jan.csv",
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius_Feb.csv",
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius_March.csv",
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe%26Fronius_April.csv",
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe%26Fronius_may.csv"
 ]
-# (keep other URLs)
+FACTORY_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/FACTORY%20ELEC.csv"
+KEHUA_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/KEHUA%20INTERNAL.csv"
+WEATHER_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/csv_-33.78116654125097_19.00166906876145_horizontal_single_axis_23_30_PT60M.csv"
 
-# fetch_clean_data and load_data_engine unchanged...
+def fetch_clean_data(url):
+    try:
+        df = pd.read_csv(url)
+        if {'last_changed', 'state', 'entity_id'}.issubset(df.columns):
+            df['last_changed'] = pd.to_datetime(df['last_changed'], utc=True).dt.tz_convert('Africa/Johannesburg').dt.tz_localize(None)
+            df['state'] = pd.to_numeric(df['state'], errors='coerce').abs()
+            df['entity_id'] = df['entity_id'].str.lower().str.strip()
+            return df.pivot_table(index='last_changed', columns='entity_id', values='state', aggfunc='mean').reset_index()
+        return df
+    except Exception as e:
+        st.warning(f"Error loading {url}: {e}")
+        return pd.DataFrame()
+
+@st.cache_data(show_spinner="Loading data from GitHub...")
+def load_data_engine():
+    urls = SOLAR_URLS + [NEW_GEN_URL, FACTORY_URL, KEHUA_URL, WEATHER_URL]
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        results = list(executor.map(fetch_clean_data, urls))
+    solar_df = pd.concat([r for r in results[:len(SOLAR_URLS)] if not r.empty], ignore_index=True) if results[:len(SOLAR_URLS)] else pd.DataFrame()
+    gen_df = results[len(SOLAR_URLS)]
+    factory_df = results[len(SOLAR_URLS)+1]
+    kehua_df = results[len(SOLAR_URLS)+2]
+    weather_df = results[-1]
+    return solar_df, gen_df, factory_df, kehua_df, weather_df
 
 solar_df, gen_github_df, factory_df, kehua_df, weather_df = load_data_engine()
 
 gen_df = pd.read_csv(uploaded_gen_file) if uploaded_gen_file else gen_github_df
 
-# ------------------ FIXED GENERATOR PROCESSING FOR PIVOTED FORMAT ------------------
+# ------------------ GENERATOR PROCESSING FOR PIVOTED FORMAT ------------------
 @st.cache_data(show_spinner=False)
 def process_generator_data(_gen_df: pd.DataFrame):
     if _gen_df.empty:
         return pd.DataFrame(), pd.DataFrame()
 
-    # Check for pivoted format (last_changed + sensor columns)
-    if 'last_changed' in _gen_df.columns:
-        sensor_cols = [c for c in _gen_df.columns if c.startswith('sensor.generator_')]
-        if len(sensor_cols) > 0:
-            # Already pivoted — use directly
-            pivot = _gen_df.set_index('last_changed')[sensor_cols].copy()
-        else:
-            st.error("No generator sensor columns found in pivoted CSV.")
-            return pd.DataFrame(), pd.DataFrame()
-    else:
-        st.error("Unexpected generator CSV format.")
+    # The gen (2).csv is already pivoted: last_changed + sensor columns
+    if 'last_changed' not in _gen_df.columns:
+        st.error("Generator CSV does not have 'last_changed' column (unexpected format).")
         return pd.DataFrame(), pd.DataFrame()
 
-    pivot.index = pd.to_datetime(pivot.index, utc=True).tz_convert('Africa/Johannesburg').tz_localize(None)
+    # Extract generator sensor columns
+    sensor_cols = [c for c in _gen_df.columns if c.startswith('sensor.generator_')]
+    if not sensor_cols:
+        st.error("No generator sensor columns found in CSV.")
+        return pd.DataFrame(), pd.DataFrame()
+
+    pivot = _gen_df[['last_changed'] + sensor_cols].copy()
+    pivot['last_changed'] = pd.to_datetime(pivot['last_changed'], utc=True).dt.tz_convert('Africa/Johannesburg').dt.tz_localize(None)
+    pivot = pivot.set_index('last_changed').sort_index()
+
+    # Convert to numeric
+    for col in sensor_cols:
+        pivot[col] = pd.to_numeric(pivot[col], errors='coerce')
 
     def clean_cumulative(series):
-        series = pd.to_numeric(series, errors='coerce')
         series = series.ffill()
         diff = series.diff()
         series = series.where(diff >= 0, series.shift(1))
@@ -165,10 +196,9 @@ def process_generator_data(_gen_df: pd.DataFrame):
     pivot['fuel_liters_cum'] = clean_cumulative(pivot.get('sensor.generator_fuel_consumed'))
     pivot['runtime_hours_cum'] = clean_cumulative(pivot.get('sensor.generator_runtime_duration'))
 
-    pivot['fuel_per_kwh'] = pd.to_numeric(pivot.get('sensor.generator_fuel_per_kwh'), errors='coerce')
-    pivot['fuel_efficiency'] = pd.to_numeric(pivot.get('sensor.generator_fuel_efficiency'), errors='coerce')
+    pivot['fuel_per_kwh'] = pivot.get('sensor.generator_fuel_per_kwh', pd.Series())
+    pivot['fuel_efficiency'] = pivot.get('sensor.generator_fuel_efficiency', pd.Series())
 
-    pivot = pivot.sort_index()
     pivot['fuel_used_l'] = pivot['fuel_liters_cum'].diff().clip(lower=0).fillna(0)
     pivot['runtime_used_h'] = pivot['runtime_hours_cum'].diff().clip(lower=0).fillna(0)
 
@@ -192,11 +222,86 @@ if not daily_gen.empty:
 else:
     filtered_gen = pd.DataFrame()
 
-# ------------------ TABS AND GENERATOR TAB (UNCHANGED FROM LAST VERSION) ------------------
-# (keep the same UI code as before)
+# ------------------ TABS ------------------
+tab1, tab2, tab3, tab4 = st.tabs(["Generator Analysis", "Solar Performance", "Factory Load", "Billing Editor"])
 
 # ==================== GENERATOR ANALYSIS TAB ====================
 with tab1:
-    # ... same as previous full code
+    st.markdown("## 🔌 Generator Performance Overview")
+    st.caption("Fuel usage, runtime and estimated operating cost")
 
-# Footer same
+    st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
+    st.markdown(f"### Current Diesel Price: **R {current_price:.2f}/L** ({fuel_region})")
+    st.caption("⚠️ Cost calculated using today's diesel price (not historical pricing)")
+
+    if not filtered_gen.empty:
+        period_fuel = filtered_gen['fuel_used_l'].sum()
+        period_runtime = filtered_gen['runtime_used_h'].sum()
+        period_cost = filtered_gen['daily_cost_r'].sum()
+        avg_eff = filtered_gen['fuel_efficiency'].mean()
+        avg_l_per_kwh = filtered_gen['fuel_per_kwh'].mean()
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+            st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
+            st.markdown("<div class='metric-lbl'>Total Cost</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='metric-val'>R {period_cost:,.0f}</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        with col2:
+            st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
+            st.markdown("<div class='metric-lbl'>Fuel Used</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='metric-val'>{period_fuel:.1f} L</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        with col3:
+            st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
+            st.markdown("<div class='metric-lbl'>Runtime</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='metric-val'>{period_runtime:.1f} h</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        with col4:
+            st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
+            st.markdown("<div class='metric-lbl'>Efficiency</div>", unsafe_allow_html=True)
+            eff_text = f"{avg_eff:.1f} kWh/L" if not pd.isna(avg_eff) else "N/A"
+            st.markdown(f"<div class='metric-val'>{eff_text}</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown("### 📈 Daily Generator Trends")
+        st.caption("Fuel consumption, runtime and estimated cost")
+
+        fig = go.Figure()
+        fig.add_trace(go.Bar(x=filtered_gen['last_changed'], y=filtered_gen['fuel_used_l'], name="Daily Fuel (L)", marker_color="orange"))
+        fig.add_trace(go.Scatter(x=filtered_gen['last_changed'], y=filtered_gen['runtime_used_h'], name="Runtime (h)", mode="lines+markers", yaxis="y2", line=dict(color="lightblue")))
+        fig.add_trace(go.Scatter(x=filtered_gen['last_changed'], y=filtered_gen['daily_cost_r'], name="Daily Cost (R)", mode="lines+markers", yaxis="y3", line=dict(color=theme['accent'], width=4)))
+
+        fig.update_layout(
+            title="Generator Daily Fuel Burn, Runtime & Estimated Cost",
+            yaxis=dict(title="Fuel (L)"),
+            yaxis2=dict(title="Runtime (h)", overlaying="y", side="right"),
+            yaxis3=dict(title="Cost (R)", overlaying="y", side="right", position=0.85),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            hovermode="x unified"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        with st.expander("📄 View Daily Generator Data"):
+            st.dataframe(filtered_gen.style.format({
+                'fuel_used_l': '{:.1f}',
+                'runtime_used_h': '{:.2f}',
+                'daily_cost_r': 'R {:.0f}',
+                'fuel_per_kwh': '{:.3f}',
+                'fuel_efficiency': '{:.1f}'
+            }))
+
+    else:
+        st.info("No generator data available for selected period or upload a GEN.csv file.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# Other tabs remain as placeholders or your existing code
+
+# ------------------ FOOTER ------------------
+st.markdown("---")
+st.markdown("<p style='text-align:center; color:#E74C3C; font-weight:bold;'>built by Electrical@durrbottling.com</p>", unsafe_allow_html=True)
