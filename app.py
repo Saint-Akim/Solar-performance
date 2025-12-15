@@ -92,7 +92,7 @@ with st.sidebar:
         help="Overrides GitHub generator data"
     )
 
-# ------------------ LIVE FUEL SA API (CURRENT ONLY - SAFER) ------------------
+# ------------------ LIVE FUEL SA API (SAFER + SANITY CHECK) ------------------
 FUEL_SA_API_KEY = "3ef0bc0e377c48b58aa2c2a4d68dcc30"
 
 @st.cache_data(ttl=3600, show_spinner="Updating current diesel price...")
@@ -104,16 +104,20 @@ def get_current_diesel_price(region):
         data = response.json()
         prices = []
         for item in data.get('diesel', []):
-            location = item['location']
+            location = item['location'].lower()
             value = float(item['value'])
-            prices.append({"location": location.lower(), "price": value})
+            prices.append({"location": location, "price": value})
         df = pd.DataFrame(prices)
         match = df[df['location'] == region.lower()]
         if match.empty:
-            raise ValueError(f"Region '{region}' not found in Fuel SA response")
-        return match['price'].iloc[0]
+            raise ValueError(f"Region '{region}' not found")
+        price = match['price'].iloc[0]
+        # Sanity check for absurd values
+        if price > 100 or price < 10:
+            raise ValueError(f"Invalid price R{price:.2f}/L")
+        return price
     except Exception as e:
-        st.warning(f"Fuel SA API error: {e}. Using fallback R22.52/L (Dec 2025).")
+        st.warning(f"Fuel SA API issue: {e}. Using realistic fallback R22.52/L (Dec 2025).")
         return 22.52
 
 current_price = get_current_diesel_price(fuel_region)
@@ -160,22 +164,27 @@ solar_df, gen_github_df, factory_df, kehua_df, weather_df = load_data_engine()
 
 gen_df = pd.read_csv(uploaded_gen_file) if uploaded_gen_file else gen_github_df
 
-# ------------------ ROBUST GENERATOR PROCESSING (WITH CACHE FIX) ------------------
+# ------------------ ROBUST GENERATOR PROCESSING (COLUMN-ORDER & CASE SAFE) ------------------
 @st.cache_data(show_spinner=False)
 def process_generator_data(_gen_df: pd.DataFrame):
     if _gen_df.empty:
         return pd.DataFrame(), pd.DataFrame()
 
-    required_cols = {'entity_id', 'state', 'last_changed'}
-    missing = required_cols - set(_gen_df.columns)
+    # Case-insensitive column mapping
+    cols_lower = {c.lower().strip(): c for c in _gen_df.columns}
+    required_lower = {'entity_id', 'state', 'last_changed'}
+    missing = required_lower - set(cols_lower.keys())
     if missing:
-        st.error(f"Generator CSV missing columns: {', '.join(missing)}")
+        st.error(f"Generator CSV missing required columns: {', '.join(missing)} (found: {list(cols_lower.keys())})")
         return pd.DataFrame(), pd.DataFrame()
 
-    _gen_df = _gen_df[list(required_cols)].copy()
+    rename_map = {cols_lower[k]: k for k in required_lower}
+    _gen_df = _gen_df.rename(columns=rename_map)
+
+    # Select and process
+    _gen_df = _gen_df[['last_changed', 'entity_id', 'state']].copy()
     _gen_df['last_changed'] = pd.to_datetime(_gen_df['last_changed'], utc=True).dt.tz_convert('Africa/Johannesburg').dt.tz_localize(None)
     _gen_df['state'] = pd.to_numeric(_gen_df['state'], errors='coerce')
-
     _gen_df = _gen_df.dropna(subset=['state']).sort_values('last_changed')
 
     pivot = _gen_df.pivot_table(index='last_changed', columns='entity_id', values='state', aggfunc='last')
@@ -235,7 +244,7 @@ with tab1:
         avg_eff = filtered_gen['fuel_efficiency'].mean()
         avg_l_per_kwh = filtered_gen['fuel_per_kwh'].mean()
 
-        # KPI Cards – Executive-ready
+        # KPI Cards
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
@@ -263,7 +272,7 @@ with tab1:
             st.markdown(f"<div class='metric-val'>{eff_text}</div>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-        # Trends Section
+        # Trends
         st.markdown("### 📈 Daily Generator Trends")
         st.caption("Fuel consumption, runtime and estimated cost")
 
@@ -282,7 +291,6 @@ with tab1:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # Data Section
         with st.expander("📄 View Daily Generator Data"):
             st.dataframe(filtered_gen.style.format({
                 'fuel_used_l': '{:.1f}',
@@ -297,7 +305,7 @@ with tab1:
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-# Keep your existing Solar, Factory, and Billing tabs unchanged...
+# Keep other tabs as placeholders or your existing code...
 
 # ------------------ FOOTER ------------------
 st.markdown("---")
