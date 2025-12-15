@@ -113,7 +113,7 @@ def get_current_diesel_price(region):
         if match.empty:
             raise ValueError(f"Region '{region}' not found")
         price = match['price'].iloc[0]
-        if price > 50:  # Tolerant fallback
+        if price > 50:  # Tolerant for possible future increases
             st.warning(f"API returned high price R{price:.2f}/L — using fallback.")
             return 22.52
         return price
@@ -123,7 +123,7 @@ def get_current_diesel_price(region):
 
 current_price = get_current_diesel_price(fuel_region)
 
-# ------------------ DATA LOADING ------------------
+# ------------------ DATA LOADING (SKIP PIVOT FOR GENERATOR) ------------------
 NEW_GEN_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/gen%20(2).csv"
 SOLAR_URLS = [
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius-Jan.csv",
@@ -137,10 +137,11 @@ KEHUA_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main
 BILLING_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/September%202025.xlsx"
 WEATHER_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/csv_-33.78116654125097_19.00166906876145_horizontal_single_axis_23_30_PT60M.csv"
 
-def fetch_clean_data(url):
+def fetch_clean_data(url, is_generator=False):
     try:
         df = pd.read_csv(url)
-        if {'last_changed', 'state', 'entity_id'}.issubset(df.columns):
+        # Only pivot if NOT the generator CSV
+        if not is_generator and {'last_changed', 'state', 'entity_id'}.issubset(df.columns):
             df['last_changed'] = pd.to_datetime(df['last_changed'], utc=True).dt.tz_convert('Africa/Johannesburg').dt.tz_localize(None)
             df['state'] = pd.to_numeric(df['state'], errors='coerce').abs()
             df['entity_id'] = df['entity_id'].str.lower().str.strip()
@@ -152,9 +153,13 @@ def fetch_clean_data(url):
 
 @st.cache_data(show_spinner="Loading data from GitHub...")
 def load_data_engine():
-    urls = SOLAR_URLS + [NEW_GEN_URL, FACTORY_URL, KEHUA_URL, WEATHER_URL]
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        results = list(executor.map(fetch_clean_data, urls))
+    results = []
+    for u in SOLAR_URLS:
+        results.append(fetch_clean_data(u))
+    results.append(fetch_clean_data(NEW_GEN_URL, is_generator=True))  # No pivot for gen
+    results.append(fetch_clean_data(FACTORY_URL))
+    results.append(fetch_clean_data(KEHUA_URL))
+    results.append(fetch_clean_data(WEATHER_URL))
     solar_df = pd.concat([r for r in results[:len(SOLAR_URLS)] if not r.empty], ignore_index=True) if results[:len(SOLAR_URLS)] else pd.DataFrame()
     gen_df = results[len(SOLAR_URLS)]
     factory_df = results[len(SOLAR_URLS)+1]
@@ -166,7 +171,7 @@ solar_df, gen_github_df, factory_df, kehua_df, weather_df = load_data_engine()
 
 gen_df = pd.read_csv(uploaded_gen_file) if uploaded_gen_file else gen_github_df
 
-# ------------------ GENERATOR PROCESSING (LONG FORMAT SUPPORT) ------------------
+# ------------------ GENERATOR PROCESSING (LONG FORMAT) ------------------
 @st.cache_data(show_spinner=False)
 def process_generator_data(_gen_df: pd.DataFrame):
     if _gen_df.empty:
