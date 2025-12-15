@@ -1,12 +1,12 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.express as px
 import requests
 import io
 import openpyxl
 from datetime import datetime, timedelta
 import concurrent.futures
-import plotly.express as px
 
 # ------------------ PAGE CONFIG ------------------
 st.set_page_config(page_title="Durr Bottling Electrical Analysis", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
@@ -46,7 +46,7 @@ st.markdown(f"""
 st.markdown("<h1 class='header-title'>Durr Bottling Electrical Analysis</h1>", unsafe_allow_html=True)
 st.markdown(f"<p style='text-align:center; color:{theme['label']}; font-size:18px; margin-bottom:40px;'>Solar • Generator • Factory • Billing Dashboard</p>", unsafe_allow_html=True)
 
-# ------------------ SIDEBAR ------------------
+# ------------------ SIDEBAR WITH PREDEFINED RANGES ------------------
 with st.sidebar:
     st.markdown("## ⚡ Durr Bottling")
     st.caption("Electrical & Energy Intelligence")
@@ -66,8 +66,24 @@ with st.sidebar:
     st.markdown("---")
 
     st.subheader("Date Range")
-    start_date = st.date_input("From", datetime(2025, 1, 1))
-    end_date = st.date_input("To", datetime(2025, 12, 15))
+    preset = st.selectbox("Quick Select", ["Custom", "Last 7 Days", "Last 30 Days", "Last 90 Days", "Year to Date"])
+    
+    today = datetime.today().date()
+    if preset == "Last 7 Days":
+        start_date = today - timedelta(days=6)
+        end_date = today
+    elif preset == "Last 30 Days":
+        start_date = today - timedelta(days=29)
+        end_date = today
+    elif preset == "Last 90 Days":
+        start_date = today - timedelta(days=89)
+        end_date = today
+    elif preset == "Year to Date":
+        start_date = datetime(today.year, 1, 1).date()
+        end_date = today
+    else:
+        start_date = st.date_input("From", datetime(2025, 1, 1))
+        end_date = st.date_input("To", today)
 
     if end_date < start_date:
         st.error("End date must be after start date")
@@ -107,21 +123,22 @@ historical_prices['price'] = historical_prices[price_col]
 
 current_price = historical_prices.iloc[-1]['price']
 
-# ------------------ DATA LOADING ------------------
-NEW_GEN_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/gen%20(2).csv"
+# ------------------ DATA LOADING (PARALLEL) ------------------
 SOLAR_URLS = [
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius-Jan.csv",
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius_Feb.csv",
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius_March.csv",
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goodwe%26Fronius_Feb.csv",
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goddwe%26Fronius_March.csv",
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe%26Fronius_April.csv",
     "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe%26Fronius_may.csv"
 ]
+GEN_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/gen%20(2).csv"
 FACTORY_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/FACTORY%20ELEC.csv"
 KEHUA_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/KEHUA%20INTERNAL.csv"
 BILLING_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/September%202025.xlsx"
-WEATHER_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/csv_-33.78116654125097_19.00166906876145_horizontal_single_axis_23_30_PT60M.csv"
+HISTORY_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/history.csv"
 
-def fetch_clean_data(url, is_generator=False):
+def fetch_clean_data(args):
+    url, is_generator = args
     try:
         df = pd.read_csv(url)
         if not is_generator and {'last_changed', 'state', 'entity_id'}.issubset(df.columns):
@@ -136,25 +153,32 @@ def fetch_clean_data(url, is_generator=False):
 
 @st.cache_data(show_spinner="Loading data from GitHub...")
 def load_data_engine():
-    results = []
-    for u in SOLAR_URLS:
-        results.append(fetch_clean_data(u))
-    results.append(fetch_clean_data(NEW_GEN_URL, is_generator=True))
-    results.append(fetch_clean_data(FACTORY_URL))
-    results.append(fetch_clean_data(KEHUA_URL))
-    results.append(fetch_clean_data(WEATHER_URL))
-    solar_df = pd.concat([r for r in results[:len(SOLAR_URLS)] if not r.empty], ignore_index=True) if results[:len(SOLAR_URLS)] else pd.DataFrame()
+    urls = SOLAR_URLS + [GEN_URL, FACTORY_URL, KEHUA_URL, HISTORY_URL]
+    flags = [False] * len(SOLAR_URLS) + [True, False, False, False]
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        results = list(executor.map(fetch_clean_data, zip(urls, flags)))
+    solar_df = pd.concat([r for r in results[:len(SOLAR_URLS)] if not r.empty], ignore_index=True) if any(not r.empty for r in results[:len(SOLAR_URLS)]) else pd.DataFrame()
     gen_df = results[len(SOLAR_URLS)]
     factory_df = results[len(SOLAR_URLS)+1]
     kehua_df = results[len(SOLAR_URLS)+2]
-    weather_df = results[-1]
-    return solar_df, gen_df, factory_df, kehua_df, weather_df
+    history_df = results[-1]  # Solar PV power data
+    return solar_df, gen_df, factory_df, kehua_df, history_df
 
-solar_df, gen_github_df, factory_df, kehua_df, weather_df = load_data_engine()
+solar_df, gen_github_df, factory_df, kehua_df, history_df = load_data_engine()
+
+# Merge history_df (additional solar PV power) into solar_df
+if not history_df.empty:
+    # Assume history_df is long format with entity_id = sensor.total_pv_power_kw
+    if {'last_changed', 'state', 'entity_id'}.issubset(history_df.columns):
+        history_df['last_changed'] = pd.to_datetime(history_df['last_changed'], utc=True).dt.tz_convert('Africa/Johannesburg').dt.tz_localize(None)
+        history_df['state'] = pd.to_numeric(history_df['state'], errors='coerce')
+        history_pivot = history_df.pivot_table(index='last_changed', columns='entity_id', values='state', aggfunc='mean').reset_index()
+        history_pivot.rename(columns={'sensor.total_pv_power_kw': 'total_pv_power_kw'}, inplace=True)
+        solar_df = pd.concat([solar_df, history_pivot], ignore_index=True)
 
 gen_df = pd.read_csv(uploaded_gen_file) if uploaded_gen_file else gen_github_df
 
-# ------------------ GENERATOR PROCESSING WITH ENHANCED FEATURES ------------------
+# ------------------ GENERATOR PROCESSING ------------------
 @st.cache_data(show_spinner=False)
 def process_generator_data(_gen_df: pd.DataFrame):
     if _gen_df.empty:
@@ -213,28 +237,31 @@ if not daily_gen.empty:
 else:
     filtered_gen = pd.DataFrame()
 
-# ------------------ MERGED DATA FOR OTHER TABS ------------------
+# ------------------ MERGED DATA ------------------
 def get_time_column(df):
     for col in df.columns:
         if 'last_changed' in col.lower():
             return col
     return None
 
-all_dfs = [df for df in [solar_df, factory_df, kehua_df, weather_df] if not df.empty]
+all_dfs = [df for df in [solar_df, factory_df, kehua_df] if not df.empty]
 merged = pd.DataFrame()
 if all_dfs:
     base_df = all_dfs[0].copy()
     time_col = get_time_column(base_df)
     if time_col:
-        base_df['ts'] = pd.to_datetime(base_df[time_col])
-        base_df = base_df.sort_values('ts')
-        merged = base_df.copy()
+        base_df = base_df.set_index(time_col)
+        base_df.index = pd.to_datetime(base_df.index)
+        base_df = base_df.sort_index()
+        merged = base_df
         for df in all_dfs[1:]:
             col = get_time_column(df)
             if col:
-                df['ts'] = pd.to_datetime(df[col])
-                df = df.sort_values('ts')
-                merged = pd.merge_asof(merged, df, on='ts', direction='nearest', tolerance=pd.Timedelta('1h'))
+                df = df.set_index(col)
+                df.index = pd.to_datetime(df.index)
+                df = df.sort_index()
+                merged = pd.merge_asof(merged, df, left_index=True, right_index=True, direction='nearest', tolerance=pd.Timedelta('1h'))
+        merged = merged.reset_index().rename(columns={'index': 'ts'})
 
 if not merged.empty:
     if 'sensor.fronius_grid_power' in merged.columns:
@@ -246,33 +273,22 @@ if not merged.empty:
 filtered_merged = merged[(merged['ts'] >= pd.to_datetime(start_date)) & (merged['ts'] <= pd.to_datetime(end_date) + timedelta(days=1))] if not merged.empty else pd.DataFrame()
 
 # ------------------ TABS ------------------
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Generator Analysis", "Solar Performance", "Factory Load", "Billing Editor", "Fuel Price Trends"])
+tab1, tab2, tab3, tab4 = st.tabs(["Generator Analysis", "Solar Performance", "Factory Load", "Billing Editor"])
 
 # ==================== GENERATOR ANALYSIS TAB ====================
 with tab1:
     st.markdown("## 🔌 Generator Performance Overview")
-    st.caption("Fuel usage, runtime and estimated operating cost")
+    st.caption("Fuel usage, runtime and estimated operating cost using historical diesel prices")
 
     st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
     st.markdown(f"### Current Diesel Price: **R {current_price:.2f}/L** ({fuel_region})")
-    st.caption("⚠️ Costs use accurate monthly historical prices for 2025 (50ppm diesel)")
 
     if not filtered_gen.empty:
-        # Multi-select for generator entities
-        available_entities = [c for c in full_gen_pivot.columns if c.startswith('sensor.generator_')]
-        selected_entities = st.multiselect("Select Generator Sensors", available_entities, default=available_entities)
+        period_fuel = filtered_gen['fuel_used_l'].sum()
+        period_runtime = filtered_gen['runtime_used_h'].sum()
+        period_cost = filtered_gen['daily_cost_r'].sum()
+        avg_eff = filtered_gen['fuel_efficiency'].mean()
 
-        # Efficiency threshold filter
-        eff_threshold = st.slider("Minimum Fuel Efficiency (kWh/L)", 0.0, 10.0, 3.0, 0.1)
-        filtered_gen_eff = filtered_gen[filtered_gen['fuel_efficiency'] >= eff_threshold]
-
-        period_fuel = filtered_gen_eff['fuel_used_l'].sum()
-        period_runtime = filtered_gen_eff['runtime_used_h'].sum()
-        period_cost = filtered_gen_eff['daily_cost_r'].sum()
-        avg_eff = filtered_gen_eff['fuel_efficiency'].mean()
-        avg_l_per_kwh = filtered_gen_eff['fuel_per_kwh'].mean()
-
-        # KPI Cards
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
@@ -294,46 +310,28 @@ with tab1:
 
         with col4:
             st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
-            st.markdown("<div class='metric-lbl'>Efficiency</div>", unsafe_allow_html=True)
+            st.markdown("<div class='metric-lbl'>Avg Efficiency</div>", unsafe_allow_html=True)
             eff_text = f"{avg_eff:.1f} kWh/L" if not pd.isna(avg_eff) else "N/A"
             st.markdown(f"<div class='metric-val'>{eff_text}</div>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-        # Anomaly Alert
-        low_eff_days = filtered_gen[filtered_gen['fuel_efficiency'] < eff_threshold]
-        if not low_eff_days.empty:
-            st.warning(f"⚠️ Low efficiency (< {eff_threshold} kWh/L) on {len(low_eff_days)} day(s)")
-
-        # Daily Trends Chart
-        st.markdown("### 📈 Daily Generator Trends")
-        st.caption("Fuel consumption, runtime and estimated cost")
-
         fig = go.Figure()
-        fig.add_trace(go.Bar(x=filtered_gen_eff['last_changed'], y=filtered_gen_eff['fuel_used_l'], name="Daily Fuel (L)", marker_color="orange"))
-        fig.add_trace(go.Scatter(x=filtered_gen_eff['last_changed'], y=filtered_gen_eff['runtime_used_h'], name="Runtime (h)", mode="lines+markers", yaxis="y2", line=dict(color="lightblue")))
-        fig.add_trace(go.Scatter(x=filtered_gen_eff['last_changed'], y=filtered_gen_eff['daily_cost_r'], name="Daily Cost (R)", mode="lines+markers", yaxis="y3", line=dict(color=theme['accent'], width=4)))
+        fig.add_trace(go.Bar(x=filtered_gen['last_changed'], y=filtered_gen['fuel_used_l'], name="Fuel (L)", marker_color="orange"))
+        fig.add_trace(go.Scatter(x=filtered_gen['last_changed'], y=filtered_gen['runtime_used_h'], name="Runtime (h)", mode="lines+markers", yaxis="y2", line=dict(color="lightblue")))
+        fig.add_trace(go.Scatter(x=filtered_gen['last_changed'], y=filtered_gen['daily_cost_r'], name="Cost (R)", mode="lines+markers", yaxis="y3", line=dict(color=theme['accent'], width=4)))
 
         fig.update_layout(
-            title="Generator Daily Fuel Burn, Runtime & Estimated Cost",
             yaxis=dict(title="Fuel (L)"),
             yaxis2=dict(title="Runtime (h)", overlaying="y", side="right"),
             yaxis3=dict(title="Cost (R)", overlaying="y", side="right", position=0.85),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
             hovermode="x unified"
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
-        # Export
-        csv = filtered_gen_eff.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="Download Filtered Generator Data as CSV",
-            data=csv,
-            file_name=f"generator_data_{start_date}_to_{end_date}.csv",
-            mime="text/csv"
-        )
+        st.download_button("Download Generator Data", filtered_gen.to_csv(index=False).encode(), "generator_data.csv", "text/csv")
 
-        with st.expander("📄 View Daily Generator Data"):
-            st.dataframe(filtered_gen_eff.style.format({
+        with st.expander("View Raw Data"):
+            st.dataframe(filtered_gen.style.format({
                 'fuel_used_l': '{:.1f}',
                 'runtime_used_h': '{:.2f}',
                 'daily_cost_r': 'R {:.0f}',
@@ -342,58 +340,35 @@ with tab1:
             }))
 
     else:
-        st.info("No generator data available for selected period or upload a GEN.csv file.")
+        st.info("No generator data available.")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ==================== SOLAR PERFORMANCE TAB ====================
 with tab2:
     st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
-    if not filtered_merged.empty and 'total_solar' in filtered_merged.columns:
-        # Inverter selection
-        inverter_cols = [c for c in filtered_merged.columns if 'kw' in c.lower()]
-        selected_inverters = st.multiselect("Select Inverter(s)", inverter_cols, default=inverter_cols)
-
-        solar_filtered = filtered_merged[['ts'] + selected_inverters + ['total_solar']]
-
-        # Aggregation
-        agg_period = st.selectbox("Aggregation Period", ["Hourly", "Daily", "Monthly"])
-        if agg_period == "Daily":
-            solar_agg = solar_filtered.set_index('ts').resample('D').sum().reset_index()
-        elif agg_period == "Monthly":
-            solar_agg = solar_filtered.set_index('ts').resample('M').sum().reset_index()
-        else:
-            solar_agg = solar_filtered
-
+    if not filtered_merged.empty:
+        st.markdown("### Total Solar Output (Combined Fronius + Goodwe + History)")
         fig = go.Figure(go.Scatter(
-            x=solar_agg['ts'], y=solar_agg['total_solar'],
-            mode='lines', name='Total Solar Output',
+            x=filtered_merged['ts'], y=filtered_merged['total_solar'],
+            mode='lines', name='Total Solar (kW)',
             line=dict(color=theme['success'], width=3)
         ))
-        fig.update_layout(title=f"Solar Power Output ({agg_period})", height=500)
-        st.plotly_chart(fig, use_container_width=True)
+        fig.update_layout(title="Solar Power Output", height=500)
+        st.plotly_chart(fig, width='stretch')
 
-        st.success(f"Peak Solar Output: {solar_agg['total_solar'].max():.1f} kW")
-        st.metric("Total Solar kWh Generated", f"{solar_agg['total_solar'].sum():,.0f} kWh")
+        st.success(f"Peak Solar Output: {filtered_merged['total_solar'].max():.1f} kW")
 
-        # Hourly Heatmap
-        st.markdown("### Hourly Solar Output Heatmap")
-        solar_filtered['hour'] = solar_filtered['ts'].dt.hour
-        heatmap_data = solar_filtered.groupby('hour')['total_solar'].mean().reset_index()
-        fig_heat = px.bar(heatmap_data, x='hour', y='total_solar', title="Average Solar Output by Hour of Day")
-        st.plotly_chart(fig_heat, use_container_width=True)
+        # Hourly heatmap
+        filtered_merged['hour'] = filtered_merged['ts'].dt.hour
+        heatmap = filtered_merged.groupby('hour')['total_solar'].mean().reset_index()
+        fig_heat = px.imshow(heatmap['total_solar'].values.reshape(1, -1), x=list(range(24)), y=["Avg kW"], title="Average Solar Output by Hour")
+        st.plotly_chart(fig_heat, width='stretch')
 
-        # Export
-        csv_solar = solar_agg.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="Download Solar Data as CSV",
-            data=csv_solar,
-            file_name=f"solar_data_{start_date}_to_{end_date}.csv",
-            mime="text/csv"
-        )
+        st.download_button("Download Solar Data", filtered_merged.to_csv(index=False).encode(), "solar_data.csv", "text/csv")
 
     else:
-        st.info("No solar data in selected period.")
+        st.info("No solar data available.")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ==================== FACTORY LOAD TAB ====================
@@ -411,51 +386,24 @@ with tab3:
                     (factory_filtered['last_changed'].dt.date <= end_date)
                 ]
 
-                # Aggregation
-                agg_period_factory = st.selectbox("Factory Aggregation", ["Daily", "Weekly", "Monthly"], key="factory_agg")
-                if agg_period_factory == "Weekly":
-                    factory_agg = factory_filtered.set_index('last_changed').resample('W').sum().reset_index()
-                elif agg_period_factory == "Monthly":
-                    factory_agg = factory_filtered.set_index('last_changed').resample('M').sum().reset_index()
-                else:
-                    factory_agg = factory_filtered
-
                 fig = go.Figure(go.Scatter(
-                    x=factory_agg['last_changed'], y=factory_agg['daily_kwh'],
-                    mode='lines+markers', name='Factory Consumption',
+                    x=factory_filtered['last_changed'], y=factory_filtered['daily_kwh'],
+                    mode='lines+markers', name='Daily Consumption',
                     line=dict(color="#3498DB", width=3)
                 ))
-                fig.update_layout(title=f"Factory Energy Consumption ({agg_period_factory})", height=500)
-                st.plotly_chart(fig, use_container_width=True)
+                fig.update_layout(title="Factory Daily Energy Consumption (kWh)", height=500)
+                st.plotly_chart(fig, width='stretch')
 
-                st.metric("Total Factory kWh", f"{factory_agg['daily_kwh'].sum():,.0f} kWh")
+                st.metric("Total Factory kWh", f"{factory_filtered['daily_kwh'].sum():,.0f} kWh")
 
-                # Hourly heatmap
-                st.markdown("### Hourly Factory Load Heatmap")
-                factory_hourly = factory_df.copy()
-                factory_hourly['last_changed'] = pd.to_datetime(factory_hourly['last_changed'])
-                factory_hourly['hour'] = factory_hourly['last_changed'].dt.hour
-                if 'sensor.bottling_factory_monthkwhtotal' in factory_hourly.columns:
-                    factory_hourly['hourly_diff'] = factory_hourly['sensor.bottling_factory_monthkwhtotal'].diff().clip(lower=0)
-                    heatmap_factory = factory_hourly.groupby('hour')['hourly_diff'].mean().reset_index()
-                    fig_heat_factory = px.bar(heatmap_factory, x='hour', y='hourly_diff', title="Average Hourly Factory Load")
-                    st.plotly_chart(fig_heat_factory, use_container_width=True)
-
-                # Export
-                csv_factory = factory_agg.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="Download Factory Data as CSV",
-                    data=csv_factory,
-                    file_name=f"factory_data_{start_date}_to_{end_date}.csv",
-                    mime="text/csv"
-                )
+                st.download_button("Download Factory Data", factory_filtered.to_csv(index=False).encode(), "factory_data.csv", "text/csv")
 
             else:
-                st.info("Factory cumulative kWh sensor not found.")
+                st.info("Factory sensor not found.")
         else:
-            st.info("No timestamp column in factory data.")
+            st.info("No timestamp in factory data.")
     else:
-        st.info("No factory consumption data available.")
+        st.info("No factory data available.")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ==================== BILLING EDITOR TAB ====================
@@ -497,36 +445,6 @@ with tab4:
             )
     except Exception as e:
         st.error(f"Failed to load billing template: {e}")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ==================== FUEL PRICE TRENDS TAB ====================
-with tab5:
-    st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
-    st.markdown("## ⛽ Diesel Price Trends 2025 (50ppm)")
-    st.caption("Monthly retail prices based on official DMRE & market data (coast vs reef/inland).")
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=historical_prices['month'], y=historical_prices['coast_50ppm'], mode='lines+markers', name='Coast', line=dict(color=theme['success'])))
-    fig.add_trace(go.Scatter(x=historical_prices['month'], y=historical_prices['reef_50ppm'], mode='lines+markers', name='Reef/Inland', line=dict(color=theme['accent'])))
-    fig.update_layout(
-        title="Diesel 50ppm Price per Litre (R) - 2025",
-        xaxis_title="Month",
-        yaxis_title="Price (R/L)",
-        hovermode="x unified"
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-    display_df = historical_prices.copy()
-    display_df['month'] = display_df['month'].dt.strftime('%B %Y')
-    st.dataframe(display_df[['month', 'coast_50ppm', 'reef_50ppm']].style.format({
-        'coast_50ppm': 'R {:.2f}',
-        'reef_50ppm': 'R {:.2f}'
-    }).rename(columns={
-        'month': 'Month',
-        'coast_50ppm': 'Coast (R/L)',
-        'reef_50ppm': 'Reef/Inland (R/L)'
-    }))
-
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ------------------ FOOTER ------------------
