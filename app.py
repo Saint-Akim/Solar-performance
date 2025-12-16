@@ -288,11 +288,6 @@ with tab1:
         )
         st.plotly_chart(fig, width='stretch')
 
-        st.markdown("### Fuel Consumption Chart")
-        fig_fuel = px.line(filtered_gen, x='last_changed', y='fuel_used_l', title="Daily Fuel Consumption (L)", markers=True)
-        fig_fuel.update_layout(yaxis_title="Fuel Used (L)", xaxis_title="Date")
-        st.plotly_chart(fig_fuel, width='stretch')
-
         st.download_button("Download Generator Data", filtered_gen.to_csv(index=False).encode(), "generator_data.csv", "text/csv")
 
         with st.expander("View Raw Data"):
