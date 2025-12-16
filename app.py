@@ -13,35 +13,32 @@ st.set_page_config(page_title="Durr Bottling Electrical Analysis", page_icon="�
 if 'theme' not in st.session_state:
     st.session_state.theme = 'light'
 
-theme = {
-    "bg": "#121212" if st.session_state.theme == 'dark' else "#F8F9FA",
-    "card": "#1E1E1E" if st.session_state.theme == 'dark' else "#FFFFFF",
-    "text": "#E0E0E0" if st.session_state.theme == 'dark' else "#2C3E50",
-    "label": "#A0A0A0" if st.session_state.theme == 'dark' else "#7F8C8D",
-    "border": "1px solid #333" if st.session_state.theme == 'dark' else "1px solid #E9ECEF",
-    "grid": "#333" if st.session_state.theme == 'dark' else "#E9ECEF",
-    "accent": "#E74C3C",
-    "success": "#2ECC71"
-}
+def apply_theme(dark_mode=True):
+    if dark_mode:
+        primary_bg = "#1e1e2f"
+        secondary_bg = "#27293d"
+        text_color = "#ffffff"
+        accent_color = "#4fd1c5"
+    else:
+        primary_bg = "#ffffff"
+        secondary_bg = "#f2f2f5"
+        text_color = "#000000"
+        accent_color = "#4fd1c5"
 
-st.markdown(f"""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
-    .stApp {{ background: {theme['bg']}; font-family: 'Roboto', sans-serif; color: {theme['text']}; }}
-    .fuel-card {{ background: {theme['card']}; border: {theme['border']}; border-radius: 12px; padding: 24px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); margin: 16px 0; }}
-    .metric-val {{ font-size: 32px; font-weight: 700; color: {theme['accent']}; margin: 8px 0; }}
-    .metric-lbl {{ font-size: 13px; font-weight: 600; text-transform: uppercase; color: {theme['label']}; letter-spacing: 1px; margin-bottom: 4px; }}
-    .header-title {{ font-size: 52px; font-weight: 900; text-align: center; margin: 40px 0 10px; background: linear-gradient(90deg, #E74C3C, #3498DB); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
-    .stButton > button {{ background: {theme['accent']} !important; color: white !important; border-radius: 12px !important; font-weight: 600 !important; height: 48px !important; }}
-    .stTabs [data-baseweb="tab"][aria-selected="true"] {{ color: {theme['accent']}; border-bottom: 4px solid {theme['accent']}; }}
-    .plot-container {{ border-radius: 14px; }}
-    #MainMenu, footer, header {{ visibility: hidden; }}
-    @media (max-width: 768px) {{ [data-testid="stColumns"] {{ flex-direction: column !important; }} }}
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown("<h1 class='header-title'>Durr Bottling Electrical Analysis</h1>", unsafe_allow_html=True)
-st.markdown(f"<p style='text-align:center; color:{theme['label']}; font-size:18px; margin-bottom:40px;'>Solar • Generator • Factory • Billing Dashboard</p>", unsafe_allow_html=True)
+    theme_css = f"""
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
+        .stApp {{ background-color: {secondary_bg}; color: {text_color}; font-family: 'Roboto', sans-serif; }}
+        .fuel-card {{ background-color: {primary_bg}; color: {text_color}; border-radius: 10px; padding: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); margin: 16px 0; }}
+        .stMetric {{ background-color: {primary_bg}; color: {text_color}; border-radius: 10px; padding: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }}
+        .stPlotlyChart iframe {{ border-radius: 10px; background-color: {primary_bg} !important; }}
+        .stSidebar {{ background-color: {primary_bg}; color: {text_color}; }}
+        .stButton>button {{ background-color: {accent_color}; color: {text_color}; border-radius: 8px; }}
+        .stTabs [data-baseweb="tab"][aria-selected="true"] {{ color: {accent_color}; border-bottom: 4px solid {accent_color}; }}
+        #MainMenu, footer, header {{ visibility: hidden; }}
+    </style>
+    """
+    st.markdown(theme_css, unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("## ⚡ Durr Bottling")
@@ -56,6 +53,7 @@ with st.sidebar:
         if dark_mode != (st.session_state.theme == 'dark'):
             st.session_state.theme = 'dark' if dark_mode else 'light'
             st.rerun()
+    apply_theme(dark_mode)
     st.markdown("---")
     st.subheader("Date Range")
     preset = st.selectbox("Quick Select", ["Custom", "Last 7 Days", "Last 30 Days", "Last 90 Days", "Year to Date"])
@@ -209,8 +207,9 @@ def process_generator_data(_gen_df: pd.DataFrame):
     # ---------- EFFICIENCY CALCS ----------
     GENERATOR_KW = 400  # Adjust to your generator's rated output if known
     daily['energy_kwh'] = daily['runtime_used_h'] * GENERATOR_KW
-    daily['fuel_per_kwh'] = daily['fuel_used_l'] / daily['energy_kwh'].replace(0, pd.NA)
-    daily['fuel_efficiency'] = daily['energy_kwh'] / daily['fuel_used_l'].replace(0, pd.NA)
+    daily['liters_per_hour'] = daily.apply(lambda r: r['fuel_used_l'] / r['runtime_used_h'] if r['runtime_used_h'] > 0 else 0, axis=1)
+    daily['fuel_per_kwh'] = daily.apply(lambda r: r['fuel_used_l'] / r['energy_kwh'] if r['energy_kwh'] > 0 else 0, axis=1)
+    daily['fuel_efficiency'] = daily.apply(lambda r: r['energy_kwh'] / r['fuel_used_l'] if r['fuel_used_l'] > 0 else 0, axis=1)
 
     # ---------- PRICE MERGE ----------
     daily['month'] = daily['last_changed'].dt.to_period('M').dt.to_timestamp()
@@ -280,52 +279,36 @@ with tab1:
         period_fuel = filtered_gen['fuel_used_l'].sum()
         period_runtime = filtered_gen['runtime_used_h'].sum()
         period_cost = filtered_gen['daily_cost_r'].sum()
-        avg_lph = period_fuel / period_runtime if period_runtime > 0 else 0
-        avg_kwh_per_l = filtered_gen['fuel_efficiency'].mean()
+        period_lph = period_fuel / period_runtime if period_runtime > 0 else 0
+        period_eff = filtered_gen['fuel_efficiency'].mean()
 
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
-            st.markdown("<div class='metric-lbl'>Total Diesel Cost (R)</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-val'>R {period_cost:,.0f}</div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+        cols = st.columns(6)
+        cols[0].metric("Total Diesel Cost", f"R {period_cost:,.0f}")
+        cols[1].metric("Fuel Used", f"{period_fuel:.1f} L")
+        cols[2].metric("Runtime", f"{period_runtime:.1f} h")
+        cols[3].metric("Liters per Hour", f"{period_lph:.2f} L/h")
+        cols[4].metric("Fuel Efficiency", f"{period_eff:.2f} kWh/L")
+        cols[5].metric("Fuel per kWh", f"{filtered_gen['fuel_per_kwh'].mean():.3f} L/kWh")
 
-        with col2:
-            st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
-            st.markdown("<div class='metric-lbl'>Fuel Used (L)</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-val'>{period_fuel:.1f} L</div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        with col3:
-            st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
-            st.markdown("<div class='metric-lbl'>Runtime (h)</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-val'>{period_runtime:.1f} h</div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        with col4:
-            st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
-            st.markdown("<div class='metric-lbl'>Liters per Hour</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-val'>{avg_lph:.2f} L/h</div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        fig = go.Figure()
-        fig.add_trace(go.Bar(x=filtered_gen['last_changed'], y=filtered_gen['fuel_used_l'], name="Fuel Used (L)", marker_color="darkorange"))
-        fig.add_trace(go.Scatter(x=filtered_gen['last_changed'], y=filtered_gen['runtime_used_h'], name="Runtime (h)", mode="lines+markers", yaxis="y2", line=dict(color="blue")))
-        fig.add_trace(go.Scatter(x=filtered_gen['last_changed'], y=filtered_gen['daily_cost_r'], name="Cost (R)", mode="lines+markers", yaxis="y3", line=dict(color="red", width=4)))
-
+        fig = px.bar(filtered_gen, x='last_changed', y='fuel_used_l', text='fuel_used_l', labels={'fuel_used_l': 'Fuel Used (L)'})
+        fig.add_scatter(x=filtered_gen['last_changed'], y=filtered_gen['liters_per_hour'], mode="lines+markers", name="L/h", line=dict(color="#4fd1c5", width=3))
         fig.update_layout(
             height=520,
-            plot_bgcolor=theme['card'],
-            paper_bgcolor=theme['card'],
-            font=dict(color=theme['text']),
-            xaxis=dict(rangeslider=dict(visible=True), showgrid=True, gridcolor=theme['grid']),
-            yaxis=dict(title="Fuel Used (L)", showgrid=True, gridcolor=theme['grid']),
-            yaxis2=dict(title="Runtime (h)", overlaying="y", side="right"),
-            yaxis3=dict(title="Cost (R)", overlaying="y", side="right", position=0.88),
-            hovermode="x unified",
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            xaxis=dict(rangeslider=dict(visible=True)),
+            yaxis=dict(title="Fuel Used (L) / L/h"),
+            xaxis_title="Date",
             legend=dict(orientation="h")
         )
         st.plotly_chart(fig, use_container_width=True)
+
+        if period_eff < 4:
+            st.success(f"Fuel Efficiency: {period_eff:.2f} kWh/L (Good)")
+        elif period_eff < 5:
+            st.warning(f"Fuel Efficiency: {period_eff:.2f} kWh/L (Average)")
+        else:
+            st.error(f"Fuel Efficiency: {period_eff:.2f} kWh/L (High Consumption)")
 
         st.caption("⚠️ Cost variance may occur due to fuel purchases being made before consumption and sensor inaccuracies at high tank levels.")
 
@@ -336,8 +319,9 @@ with tab1:
                 'fuel_used_l': '{:.1f}',
                 'runtime_used_h': '{:.2f}',
                 'daily_cost_r': 'R {:.0f}',
+                'liters_per_hour': '{:.2f}',
                 'fuel_per_kwh': '{:.3f}',
-                'fuel_efficiency': '{:.1f}'
+                'fuel_efficiency': '{:.2f}'
             }))
 
     else:
@@ -352,7 +336,7 @@ with tab2:
         fig = go.Figure(go.Scatter(
             x=filtered_merged['ts'], y=filtered_merged['total_solar'],
             mode='lines', name='Total Solar Output',
-            line=dict(color=theme['success'], width=3)
+            line=dict(color="#4fd1c5", width=3)
         ))
         fig.update_layout(title="Solar Power Output (kW)", height=500, xaxis=dict(rangeslider=dict(visible=True)))
         st.plotly_chart(fig, use_container_width=True)
@@ -455,4 +439,4 @@ with tab4:
 
 # ------------------ FOOTER ------------------
 st.markdown("---")
-st.markdown("<p style='text-align:center; color:#E74C3C; font-weight:bold;'>built by Electrical@durrbottling.com</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center; font-weight:bold;'>built by Electrical@durrbottling.com</p>", unsafe_allow_html=True)
