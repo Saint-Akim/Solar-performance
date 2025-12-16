@@ -52,7 +52,7 @@ with st.sidebar:
     with col1:
         st.caption("Dark Mode")
     with col2:
-        dark_mode = st.toggle("Toggle dark mode", value=(st.session_state.theme == 'dark'), key="theme_toggle")
+        dark_mode = st.toggle("", value=(st.session_state.theme == 'dark'), label_visibility="collapsed")
         if dark_mode != (st.session_state.theme == 'dark'):
             st.session_state.theme = 'dark' if dark_mode else 'light'
             st.rerun()
@@ -145,48 +145,70 @@ def process_generator_data(_gen_df: pd.DataFrame):
     if _gen_df.empty:
         return pd.DataFrame(), pd.DataFrame()
 
-    required = {'entity_id', 'state', 'last_changed'}
-    if not required.issubset(_gen_df.columns):
-        st.error(f"Generator CSV missing required columns: {required - set(_gen_df.columns)} (found: {_gen_df.columns.tolist()})")
-        return pd.DataFrame(), pd.DataFrame()
+    cols = set(_gen_df.columns.str.lower())
 
-    _gen_df = _gen_df[['last_changed', 'entity_id', 'state']].copy()
-    _gen_df['last_changed'] = pd.to_datetime(_gen_df['last_changed'], utc=True).dt.tz_convert('Africa/Johannesburg').dt.tz_localize(None)
-    _gen_df['state'] = pd.to_numeric(_gen_df['state'], errors='coerce')
-    _gen_df = _gen_df.dropna(subset=['state']).sort_values('last_changed')
-    _gen_df['entity_id'] = _gen_df['entity_id'].str.lower().str.strip()
+    # ---------- CASE 1: Home Assistant telemetry ----------
+    if {'entity_id', 'state', 'last_changed'}.issubset(cols):
+        df = _gen_df.copy()
+        df['last_changed'] = pd.to_datetime(df['last_changed'], errors='coerce')
+        df['state'] = pd.to_numeric(df['state'], errors='coerce')
+        df = df.dropna(subset=['last_changed', 'state'])
 
-    pivot = _gen_df.pivot_table(index='last_changed', columns='entity_id', values='state', aggfunc='last')
+        pivot = df.pivot_table(
+            index='last_changed',
+            columns='entity_id',
+            values='state',
+            aggfunc='last'
+        ).sort_index()
 
-    def clean_cumulative(series):
-        series = series.ffill()
-        diff = series.diff()
-        series = series.where(diff >= 0, series.shift(1))
-        return series.fillna(method='ffill').fillna(0)
+        fuel = pivot.filter(like='fuel').iloc[:, 0]
+        runtime = pivot.filter(like='runtime').iloc[:, 0]
 
-    pivot['fuel_liters_cum'] = clean_cumulative(pivot.get('sensor.generator_fuel_consumed'))
-    pivot['runtime_hours_cum'] = clean_cumulative(pivot.get('sensor.generator_runtime_duration'))
+        daily = pd.DataFrame({
+            'last_changed': fuel.index,
+            'fuel_used_l': fuel.diff().clip(lower=0),
+            'runtime_used_h': runtime.diff().clip(lower=0)
+        }).resample('D').sum().reset_index()
 
-    pivot['fuel_per_kwh'] = pivot.get('sensor.generator_fuel_per_kwh')
-    pivot['fuel_efficiency'] = pivot.get('sensor.generator_fuel_efficiency')
+    # ---------- CASE 2: GitHub gen (2).csv ----------
+    else:
+        df = _gen_df.copy()
+        df.columns = df.columns.str.lower()
 
-    pivot = pivot.sort_index()
-    pivot['fuel_used_l'] = pivot['fuel_liters_cum'].diff().clip(lower=0).fillna(0)
-    pivot['runtime_used_h'] = pivot['runtime_hours_cum'].diff().clip(lower=0).fillna(0)
+        time_col = [c for c in df.columns if 'time' in c or 'date' in c][0]
+        fuel_col = [c for c in df.columns if 'fuel' in c][0]
+        runtime_col = [c for c in df.columns if 'run' in c][0]
 
-    daily = pivot.resample('D').agg({
-        'fuel_used_l': 'sum',
-        'runtime_used_h': 'sum',
-        'fuel_per_kwh': 'mean',
-        'fuel_efficiency': 'mean'
-    }).reset_index()
+        df[time_col] = pd.to_datetime(df[time_col])
+        df = df.sort_values(time_col)
 
-    daily['month_start'] = daily['last_changed'].dt.to_period('M').dt.start_time
-    daily = daily.merge(historical_prices[['month', 'price']], left_on='month_start', right_on='month', how='left')
-    daily['daily_cost_r'] = daily['fuel_used_l'] * daily['price'].fillna(current_price)
-    daily = daily.drop(columns=['month', 'month_start'])
+        df['fuel_l'] = pd.to_numeric(df[fuel_col], errors='coerce')
+        df['runtime_h'] = pd.to_numeric(df[runtime_col], errors='coerce')
 
-    return daily, pivot.reset_index()
+        df['fuel_used_l'] = -df['fuel_l'].diff()
+        df['fuel_used_l'] = df['fuel_used_l'].where(df['fuel_used_l'] > 0, 0)
+
+        df['runtime_used_h'] = df['runtime_h'].diff().clip(lower=0)
+
+        daily = df.resample('D', on=time_col).agg({
+            'fuel_used_l': 'sum',
+            'runtime_used_h': 'sum'
+        }).reset_index().rename(columns={time_col: 'last_changed'})
+
+    # ---------- PRICE MERGE ----------
+    daily['month'] = daily['last_changed'].dt.to_period('M').dt.to_timestamp()
+
+    daily = daily.merge(
+        historical_prices[['month', 'price']],
+        on='month',
+        how='left'
+    )
+
+    daily['price_final'] = daily['price'].fillna(current_price)
+    daily['daily_cost_r'] = daily['fuel_used_l'] * daily['price_final']
+    daily.drop(columns=['month', 'price'], inplace=True)
+
+    return daily, df
 
 daily_gen, full_gen_pivot = process_generator_data(gen_df.copy())
 
@@ -318,6 +340,7 @@ with tab2:
 
         st.success(f"Peak Solar Output: {filtered_merged['total_solar'].max():.1f} kW")
 
+        filtered_merged = filtered_merged.copy()
         filtered_merged['hour'] = filtered_merged['ts'].dt.hour
         heatmap_data = filtered_merged.groupby('hour')['total_solar'].mean().reset_index()
         fig_heat = px.bar(heatmap_data, x='hour', y='total_solar', title="Average Solar Output by Hour of Day")
