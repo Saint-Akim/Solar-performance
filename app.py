@@ -10,35 +10,35 @@ import concurrent.futures
 
 st.set_page_config(page_title="Durr Bottling Electrical Analysis", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
 
-if 'theme' not in st.session_state:
-    st.session_state.theme = 'light'
-
-def apply_theme(dark_mode=True):
+def apply_professional_theme(dark_mode=True):
     if dark_mode:
-        primary_bg = "#1e1e2f"
-        secondary_bg = "#27293d"
+        bg_main = "#1e1e2f"
+        bg_card = "#2a2c41"
         text_color = "#ffffff"
-        accent_color = "#4fd1c5"
+        accent = "#4fd1c5"
+        secondary_text = "#a0a0b0"
     else:
-        primary_bg = "#ffffff"
-        secondary_bg = "#f2f2f5"
+        bg_main = "#f5f5f8"
+        bg_card = "#ffffff"
         text_color = "#000000"
-        accent_color = "#4fd1c5"
+        accent = "#4fd1c5"
+        secondary_text = "#555555"
 
-    theme_css = f"""
+    css = f"""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
-        .stApp {{ background-color: {secondary_bg}; color: {text_color}; font-family: 'Roboto', sans-serif; }}
-        .fuel-card {{ background-color: {primary_bg}; color: {text_color}; border-radius: 10px; padding: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); margin: 16px 0; }}
-        .stMetric {{ background-color: {primary_bg}; color: {text_color}; border-radius: 10px; padding: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }}
-        .stPlotlyChart iframe {{ border-radius: 10px; background-color: {primary_bg} !important; }}
-        .stSidebar {{ background-color: {primary_bg}; color: {text_color}; }}
-        .stButton>button {{ background-color: {accent_color}; color: {text_color}; border-radius: 8px; }}
-        .stTabs [data-baseweb="tab"][aria-selected="true"] {{ color: {accent_color}; border-bottom: 4px solid {accent_color}; }}
+        .stApp {{ background-color: {bg_main}; color: {text_color}; font-family: 'Roboto', sans-serif; }}
+        .fuel-card {{ background-color: {bg_card}; color: {text_color}; border-radius: 12px; padding: 24px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); margin: 16px 0; }}
+        .stMetric {{ background-color: {bg_card}; color: {text_color}; border-radius: 12px; padding: 25px 20px; box-shadow: 0 8px 16px rgba(0,0,0,0.2); margin-bottom: 15px; }}
+        .stPlotlyChart iframe {{ border-radius: 12px !important; background-color: {bg_card} !important; }}
+        .stSidebar {{ background-color: {bg_card}; color: {text_color}; padding: 20px; }}
+        .stButton>button {{ background-color: {accent}; color: {text_color}; border-radius: 8px; font-weight: bold; padding: 10px 15px; border: none; }}
+        .stTabs [data-baseweb="tab"][aria-selected="true"] {{ color: {accent}; border-bottom: 4px solid {accent}; }}
+        .secondary-text {{ color: {secondary_text}; font-size: 0.9em; }}
         #MainMenu, footer, header {{ visibility: hidden; }}
     </style>
     """
-    st.markdown(theme_css, unsafe_allow_html=True)
+    st.markdown(css, unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("## ⚡ Durr Bottling")
@@ -49,11 +49,11 @@ with st.sidebar:
     with col1:
         st.caption("Dark Mode")
     with col2:
-        dark_mode = st.toggle("", value=(st.session_state.theme == 'dark'), label_visibility="collapsed")
-        if dark_mode != (st.session_state.theme == 'dark'):
+        dark_mode = st.toggle("", value=True, label_visibility="collapsed")
+        if 'theme' not in st.session_state or dark_mode != (st.session_state.theme == 'dark'):
             st.session_state.theme = 'dark' if dark_mode else 'light'
             st.rerun()
-    apply_theme(dark_mode)
+    apply_professional_theme(dark_mode)
     st.markdown("---")
     st.subheader("Date Range")
     preset = st.selectbox("Quick Select", ["Custom", "Last 7 Days", "Last 30 Days", "Last 90 Days", "Year to Date"])
@@ -137,15 +137,14 @@ solar_df, gen_github_df, factory_df, kehua_df, history_df = load_data_engine()
 
 gen_df = pd.read_csv(uploaded_gen_file) if uploaded_gen_file else gen_github_df
 
-# ------------------ GENERATOR PROCESSING (FULLY FIXED) ------------------
+# ------------------ GENERATOR PROCESSING (AUTOMATED & ACCURATE) ------------------
 @st.cache_data(show_spinner=False)
 def process_generator_data(_gen_df: pd.DataFrame):
     if _gen_df.empty:
-        return pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), {}
 
     cols = set(_gen_df.columns.str.lower())
 
-    # ---------- CASE 1: Home Assistant ----------
     if {'entity_id', 'state', 'last_changed'}.issubset(cols):
         df = _gen_df.copy()
         df['last_changed'] = pd.to_datetime(df['last_changed'], errors='coerce')
@@ -162,7 +161,7 @@ def process_generator_data(_gen_df: pd.DataFrame):
         fuel_cols = pivot.filter(like='fuel')
         runtime_cols = pivot.filter(like='runtime')
         if fuel_cols.empty or runtime_cols.empty:
-            return pd.DataFrame(), pivot
+            return pd.DataFrame(), {}
 
         fuel = fuel_cols.iloc[:, 0]
         runtime = runtime_cols.iloc[:, 0]
@@ -176,14 +175,13 @@ def process_generator_data(_gen_df: pd.DataFrame):
             'runtime_used_h': daily_runtime.values
         })
 
-    # ---------- CASE 2: GitHub gen (2).csv ----------
     else:
         df = _gen_df.copy()
         df.columns = df.columns.str.lower()
 
         time_cols = [c for c in df.columns if 'time' in c or 'date' in c]
         if not time_cols:
-            return pd.DataFrame(), pd.DataFrame()
+            return pd.DataFrame(), {}
 
         time_col = time_cols[0]
         fuel_col = [c for c in df.columns if 'fuel' in c][0]
@@ -204,31 +202,42 @@ def process_generator_data(_gen_df: pd.DataFrame):
             'runtime_used_h': 'sum'
         }).reset_index().rename(columns={time_col: 'last_changed'})
 
-    # ---------- EFFICIENCY CALCS ----------
-    GENERATOR_KW = 400  # Adjust to your generator's rated output if known
-    daily['energy_kwh'] = daily['runtime_used_h'] * GENERATOR_KW
-    daily['liters_per_hour'] = daily.apply(lambda r: r['fuel_used_l'] / r['runtime_used_h'] if r['runtime_used_h'] > 0 else 0, axis=1)
-    daily['fuel_per_kwh'] = daily.apply(lambda r: r['fuel_used_l'] / r['energy_kwh'] if r['energy_kwh'] > 0 else 0, axis=1)
-    daily['fuel_efficiency'] = daily.apply(lambda r: r['energy_kwh'] / r['fuel_used_l'] if r['fuel_used_l'] > 0 else 0, axis=1)
-
-    # ---------- PRICE MERGE ----------
+    # Pricing
     daily['month'] = daily['last_changed'].dt.to_period('M').dt.to_timestamp()
     daily = daily.merge(historical_prices[['month', 'price']], on='month', how='left')
     daily['price_final'] = daily['price'].fillna(current_price)
     daily['daily_cost_r'] = daily['fuel_used_l'] * daily['price_final']
     daily.drop(columns=['month', 'price'], inplace=True)
 
-    return daily, df
+    # Liters per Hour (safe average)
+    daily['liters_per_hour'] = daily.apply(lambda r: r['fuel_used_l'] / r['runtime_used_h'] if r['runtime_used_h'] > 0 else 0, axis=1)
 
-daily_gen, full_gen_pivot = process_generator_data(gen_df.copy())
+    # Totals
+    totals = {
+        "total_cost_r": daily['daily_cost_r'].sum(),
+        "total_fuel_l": daily['fuel_used_l'].sum(),
+        "total_runtime_h": daily['runtime_used_h'].sum(),
+        "avg_liters_per_hour": daily['liters_per_hour'][daily['liters_per_hour'] > 0].mean() if (daily['liters_per_hour'] > 0).any() else 0
+    }
+
+    return daily, totals
+
+daily_gen, totals = process_generator_data(gen_df.copy())
 
 if not daily_gen.empty:
     filtered_gen = daily_gen[
         (daily_gen['last_changed'].dt.date >= start_date) &
         (daily_gen['last_changed'].dt.date <= end_date)
     ].copy()
+    filtered_totals = {
+        "total_cost_r": filtered_gen['daily_cost_r'].sum(),
+        "total_fuel_l": filtered_gen['fuel_used_l'].sum(),
+        "total_runtime_h": filtered_gen['runtime_used_h'].sum(),
+        "avg_liters_per_hour": filtered_gen['liters_per_hour'][filtered_gen['liters_per_hour'] > 0].mean() if (filtered_gen['liters_per_hour'] > 0).any() else 0
+    }
 else:
     filtered_gen = pd.DataFrame()
+    filtered_totals = {}
 
 # ------------------ MERGED DATA WITH SAFE 'ts' ------------------
 def get_time_column(df):
@@ -275,23 +284,15 @@ with tab1:
     st.markdown("<div class='fuel-card'>", unsafe_allow_html=True)
     st.markdown(f"### Current Diesel Price: **R {current_price:.2f}/L** ({fuel_region})")
 
-    if not filtered_gen.empty:
-        period_fuel = filtered_gen['fuel_used_l'].sum()
-        period_runtime = filtered_gen['runtime_used_h'].sum()
-        period_cost = filtered_gen['daily_cost_r'].sum()
-        period_lph = period_fuel / period_runtime if period_runtime > 0 else 0
-        period_eff = filtered_gen['fuel_efficiency'].mean()
-
-        cols = st.columns(6)
-        cols[0].metric("Total Diesel Cost", f"R {period_cost:,.0f}")
-        cols[1].metric("Fuel Used", f"{period_fuel:.1f} L")
-        cols[2].metric("Runtime", f"{period_runtime:.1f} h")
-        cols[3].metric("Liters per Hour", f"{period_lph:.2f} L/h")
-        cols[4].metric("Fuel Efficiency", f"{period_eff:.2f} kWh/L")
-        cols[5].metric("Fuel per kWh", f"{filtered_gen['fuel_per_kwh'].mean():.3f} L/kWh")
+    if filtered_totals:
+        cols = st.columns(4)
+        cols[0].metric("Total Diesel Cost", f"R {filtered_totals['total_cost_r']:,.0f}")
+        cols[1].metric("Fuel Used", f"{filtered_totals['total_fuel_l']:.1f} L")
+        cols[2].metric("Runtime", f"{filtered_totals['total_runtime_h']:.1f} h")
+        cols[3].metric("Avg Liters per Hour", f"{filtered_totals['avg_liters_per_hour']:.2f} L/h")
 
         fig = px.bar(filtered_gen, x='last_changed', y='fuel_used_l', text='fuel_used_l', labels={'fuel_used_l': 'Fuel Used (L)'})
-        fig.add_scatter(x=filtered_gen['last_changed'], y=filtered_gen['liters_per_hour'], mode="lines+markers", name="L/h", line=dict(color="#4fd1c5", width=3))
+        fig.add_scatter(x=filtered_gen['last_changed'], y=filtered_gen['liters_per_hour'], mode="lines+markers", name="L/h", line=dict(color="#f97316", width=3))
         fig.update_layout(
             height=520,
             plot_bgcolor="rgba(0,0,0,0)",
@@ -303,29 +304,30 @@ with tab1:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        if period_eff < 4:
-            st.success(f"Fuel Efficiency: {period_eff:.2f} kWh/L (Good)")
-        elif period_eff < 5:
-            st.warning(f"Fuel Efficiency: {period_eff:.2f} kWh/L (Average)")
+        lph = filtered_totals['avg_liters_per_hour']
+        if lph < 3.5:
+            st.success(f"Average Consumption: {lph:.2f} L/h (Excellent)")
+        elif lph < 4.5:
+            st.success(f"Average Consumption: {lph:.2f} L/h (Good)")
+        elif lph < 5.5:
+            st.warning(f"Average Consumption: {lph:.2f} L/h (Average)")
         else:
-            st.error(f"Fuel Efficiency: {period_eff:.2f} kWh/L (High Consumption)")
+            st.error(f"Average Consumption: {lph:.2f} L/h (High)")
 
-        st.caption("⚠️ Cost variance may occur due to fuel purchases being made before consumption and sensor inaccuracies at high tank levels.")
+        st.caption("⚠️ Cost variance may occur due to timing of fuel purchases vs consumption and sensor inaccuracies at high tank levels.")
 
         st.download_button("Download Generator Data", filtered_gen.to_csv(index=False).encode(), "generator_data.csv", "text/csv")
 
-        with st.expander("View Raw Data"):
+        with st.expander("View Raw Daily Data"):
             st.dataframe(filtered_gen.style.format({
                 'fuel_used_l': '{:.1f}',
                 'runtime_used_h': '{:.2f}',
                 'daily_cost_r': 'R {:.0f}',
-                'liters_per_hour': '{:.2f}',
-                'fuel_per_kwh': '{:.3f}',
-                'fuel_efficiency': '{:.2f}'
+                'liters_per_hour': '{:.2f}'
             }))
 
     else:
-        st.info("No generator data available.")
+        st.info("No generator data available in selected period.")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
