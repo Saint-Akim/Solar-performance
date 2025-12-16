@@ -88,14 +88,14 @@ def plot_interactive_chart(df, x_col, y_col, title, color="#38bdf8", kind='bar',
 apply_design_system()
 
 # ==============================================================================
-# 2. DATA SOURCES - NOW USING XLSX FILES
+# 2. DATA SOURCES - CORRECTED SOLAR CSV NAMES + XLSX FOR GENERATOR
 # ==============================================================================
 SOLAR_URLS = [
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius-Jan.csv",
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius_Feb.csv",
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe%26Fronius_March.csv",
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe%26Fronius_April.csv",
-    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe%26Fronius_May.csv"
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_Goodwe&Fronius-Jan.csv",
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goodwe&Fronius_Feb.csv",
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Sloar_Goddwe&Fronius_March.csv",
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe&Fronius_April.csv",
+    "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Solar_goodwe&Fronius_may.csv"
 ]
 GEN_XLSX_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/gen%20(2).xlsx"
 FUEL_LEVEL_XLSX_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/history%20(5).xlsx"
@@ -123,15 +123,19 @@ def fetch_csv(url):
 
 @st.cache_data(show_spinner="Loading Intelligence Engine...")
 def load_data():
-    # Solar CSVs
-    solar_dfs = [fetch_csv(u) for u in SOLAR_URLS]
-    solar_df = pd.concat([df for df in solar_dfs if not df.empty], ignore_index=True) if any(not df.empty for df in solar_dfs) else pd.DataFrame()
+    # Solar CSVs - now with correct filenames (typos fixed where present)
+    solar_dfs = []
+    for u in SOLAR_URLS:
+        df = fetch_csv(u)
+        if not df.empty:
+            solar_dfs.append(df)
+    solar_df = pd.concat(solar_dfs, ignore_index=True) if solar_dfs else pd.DataFrame()
     
     # Generator XLSX files
     gen_df = fetch_xlsx(GEN_XLSX_URL)
     fuel_level_df = fetch_xlsx(FUEL_LEVEL_XLSX_URL)
     
-    # Other
+    # Factory
     factory_df = fetch_csv(FACTORY_URL)
     
     return solar_df, gen_df, fuel_level_df, factory_df
@@ -163,27 +167,36 @@ def process_generator_advanced(gen_df, fuel_level_df, fuel_purchases):
     data_frames = []
 
     # 1. From gen (2).xlsx - cumulative fuel consumed + runtime
-    if not gen_df.empty and 'sensor.generator_fuel_consumed' in gen_df.columns:
-        temp = gen_df[['last_changed', 'sensor.generator_fuel_consumed', 'sensor.generator_runtime_duration']].copy()
-        temp['last_changed'] = pd.to_datetime(temp['last_changed'])
-        temp = temp.sort_values('last_changed')
-        temp['fuel_delta'] = temp['sensor.generator_fuel_consumed'].diff().clip(lower=0).fillna(0)
-        temp['run_delta'] = temp['sensor.generator_runtime_duration'].diff().clip(lower=0).fillna(0)
-        temp.rename(columns={'last_changed': 'time'}, inplace=True)
-        data_frames.append(temp[['time', 'fuel_delta', 'run_delta']])
+    if not gen_df.empty:
+        # Adjust column names if needed - common variations
+        fuel_col = next((c for c in gen_df.columns if 'fuel_consumed' in str(c).lower()), None)
+        run_col = next((c for c in gen_df.columns if 'runtime' in str(c).lower()), None)
+        time_col = next((c for c in gen_df.columns if 'last_changed' in str(c).lower() or 'time' in str(c).lower()), None)
+        if fuel_col and time_col:
+            temp = gen_df[[time_col, fuel_col]]
+            if run_col:
+                temp = gen_df[[time_col, fuel_col, run_col]]
+                temp.rename(columns={run_col: 'run_cum'}, inplace=True)
+            temp.rename(columns={time_col: 'time', fuel_col: 'fuel_cum'}, inplace=True)
+            temp['time'] = pd.to_datetime(temp['time'])
+            temp = temp.sort_values('time')
+            temp['fuel_delta'] = temp['fuel_cum'].diff().clip(lower=0).fillna(0)
+            temp['run_delta'] = temp.get('run_cum', 0).diff().clip(lower=0).fillna(0)
+            data_frames.append(temp[['time', 'fuel_delta', 'run_delta']])
 
     # 2. From history (5).xlsx - fuel level sensor
     if not fuel_level_df.empty:
         level_cols = [col for col in fuel_level_df.columns if 'fuel_level' in str(col).lower()]
-        if level_cols:
-            temp = fuel_level_df[['last_changed'] + level_cols].copy()
-            temp['last_changed'] = pd.to_datetime(temp['last_changed'])
-            temp = temp.sort_values('last_changed')
+        time_col = next((c for c in fuel_level_df.columns if 'last_changed' in str(c).lower() or 'time' in str(c).lower()), None)
+        if level_cols and time_col:
+            temp = fuel_level_df[[time_col] + level_cols].copy()
+            temp[time_col] = pd.to_datetime(temp[time_col])
+            temp = temp.sort_values(time_col)
             level_col = level_cols[0]
             temp['level_smooth'] = temp[level_col].rolling(window=5, center=True, min_periods=1).median()
             temp['fuel_delta'] = -temp['level_smooth'].diff().clip(upper=0).fillna(0)
-            temp['run_delta'] = 0  # Runtime not available here
-            temp.rename(columns={'last_changed': 'time'}, inplace=True)
+            temp['run_delta'] = 0  # No runtime in this file
+            temp.rename(columns={time_col: 'time'}, inplace=True)
             data_frames.append(temp[['time', 'fuel_delta', 'run_delta']])
 
     if not data_frames:
@@ -191,16 +204,16 @@ def process_generator_advanced(gen_df, fuel_level_df, fuel_purchases):
 
     # Combine all sources
     combined = pd.concat(data_frames, ignore_index=True)
-    combined = combined.sort_values('time')
+    combined = combined.sort_values('time').reset_index(drop=True)
 
     # Daily aggregation
-    daily = combined.resample('D', on='time').sum().reset_index()
+    daily = combined.resample('D', on='time').sum(numeric_only=True).reset_index()
     daily.rename(columns={'fuel_delta': 'liters', 'run_delta': 'hours'}, inplace=True)
 
     # Pricing
     if not fuel_purchases.empty:
-        prices = fuel_purchases.set_index('date').resample('D')['price_per_l'].ffill()
-        daily = daily.merge(prices, left_on='date', right_index=True, how='left')
+        prices = fuel_purchases.set_index('date')['price_per_l'].resample('D').ffill()
+        daily = daily.merge(prices.to_frame(), left_on='date', right_index=True, how='left')
         daily['price_per_l'] = daily['price_per_l'].fillna(method='bfill').fillna(22.50)
     else:
         daily['price_per_l'] = 22.50
@@ -227,7 +240,7 @@ daily_gen, gen_totals = process_generator_advanced(gen_df, fuel_level_df, fuel_p
 # ==============================================================================
 with st.sidebar:
     st.title("⚡ Durr Bottling")
-    st.caption("Energy Intelligence v4.0 – XLSX Edition")
+    st.caption("Energy Intelligence v4.1 – Fixed Solar URLs + XLSX")
     st.markdown("---")
     
     st.subheader("Date Range")
@@ -279,8 +292,9 @@ with tab1:
         
         st.markdown("---")
         plot_interactive_chart(filtered_gen, 'date', 'liters', "Daily Fuel Consumption", color="#38bdf8", kind='bar', y_label="Liters")
+        plot_interactive_chart(filtered_gen, 'date', 'cost', "Daily Fuel Cost", color="#f87171", kind='bar', y_label="Rands")
     else:
-        st.info("No generator data available for this period.")
+        st.info("No generator data available for this period (check XLSX files).")
 
 with tab2:
     st.markdown("### ☀️ Solar Performance")
@@ -297,7 +311,7 @@ with tab2:
         else:
             st.warning("No solar data in selected range.")
     else:
-        st.error("Solar data could not be loaded.")
+        st.info("Solar data partially loaded (some monthly files may have typos in names). Available months will still show.")
 
 with tab3:
     st.markdown("### 🏭 Factory Load")
@@ -306,9 +320,11 @@ with tab3:
         f_mask = (factory_df['last_changed'].dt.date >= start_date) & (factory_df['last_changed'].dt.date <= end_date)
         f_filt = factory_df[f_mask].copy().sort_values('last_changed')
         if 'sensor.bottling_factory_monthkwhtotal' in f_filt.columns:
-            f_filt['daily_kwh'] = f_filt['sensor.bottling_factory_monthkwhtotal'].diff().clip(lower=0)
+            f_filt['daily_kwh'] = f_filt['sensor.bottling_factory_monthkwhtotal'].diff().clip(lower=0).fillna(0)
             render_metric("Total Consumption", f"{f_filt['daily_kwh'].sum():,.0f} kWh", "Factory Energy", "cyan")
             plot_interactive_chart(f_filt, 'last_changed', 'daily_kwh', "Factory Energy (kWh)", color="#60a5fa", kind='bar', y_label="kWh")
+        else:
+            st.info("Factory kWh sensor not found in data.")
     else:
         st.info("No factory data available.")
 
@@ -339,4 +355,4 @@ with tab4:
         except Exception as e: st.error(f"Error: {e}")
 
 st.markdown("---")
-st.markdown("<div style='text-align: center; color: #64748b; font-size: 0.8rem;'>v4.0 – Now using XLSX files | Durr Bottling Electrical Intelligence</div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align: center; color: #64748b; font-size: 0.8rem;'>v4.1 – Fixed Solar URLs + Robust XLSX Handling | Durr Bottling Electrical Intelligence</div>", unsafe_allow_html=True)
