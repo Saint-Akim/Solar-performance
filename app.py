@@ -98,6 +98,7 @@ KEHUA_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main
 BILLING_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/September%202025.xlsx"
 HISTORY_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/history.csv"
 FUEL_PURCHASE_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/Durr%20bottling%20Generator%20filling.xlsx"
+FUEL_LEVEL_URL = "https://raw.githubusercontent.com/Saint-Akim/Solar-performance/main/history%20(5).csv"
 
 def fetch_clean_data(args):
     url, is_generator = args
@@ -105,7 +106,7 @@ def fetch_clean_data(args):
         df = pd.read_csv(url)
         if not is_generator and {'last_changed', 'state', 'entity_id'}.issubset(df.columns):
             df['last_changed'] = pd.to_datetime(df['last_changed'], utc=True).dt.tz_convert('Africa/Johannesburg').dt.tz_localize(None)
-            df['state'] = pd.to_numeric(df['state'], errors='coerce')
+            df['state'] = pd.to_numeric(df['state'], errors='coerce').abs()
             df['entity_id'] = df['entity_id'].str.lower().str.strip()
             return df.pivot_table(index='last_changed', columns='entity_id', values='state', aggfunc='mean').reset_index()
         return df
@@ -115,20 +116,19 @@ def fetch_clean_data(args):
 
 @st.cache_data(show_spinner="Loading data from GitHub...")
 def load_data_engine():
-    urls = SOLAR_URLS + [GEN_URL, FACTORY_URL, KEHUA_URL, HISTORY_URL]
-    flags = [False] * len(SOLAR_URLS) + [True, False, False, False]
+    urls = SOLAR_URLS + [GEN_URL, FACTORY_URL, KEHUA_URL, HISTORY_URL, FUEL_LEVEL_URL]
+    flags = [False] * len(SOLAR_URLS) + [True, False, False, False, False]
     with concurrent.futures.ThreadPoolExecutor() as executor:
         results = list(executor.map(fetch_clean_data, zip(urls, flags)))
     solar_df = pd.concat([r for r in results[:len(SOLAR_URLS)] if not r.empty], ignore_index=True) if any(not r.empty for r in results[:len(SOLAR_URLS)]) else pd.DataFrame()
     gen_df = results[len(SOLAR_URLS)]
     factory_df = results[len(SOLAR_URLS)+1]
     kehua_df = results[len(SOLAR_URLS)+2]
-    history_df = results[-1]
-    return solar_df, gen_df, factory_df, kehua_df, history_df
+    history_df = results[len(SOLAR_URLS)+3]
+    fuel_level_df = results[-1]
+    return solar_df, gen_df, factory_df, kehua_df, history_df, fuel_level_df
 
-solar_df, gen_github_df, factory_df, kehua_df, history_df = load_data_engine()
-
-gen_df = gen_github_df  # No upload override needed as per your instruction
+solar_df, gen_df, factory_df, kehua_df, history_df, fuel_level_df = load_data_engine()
 
 # ------------------ LOAD FUEL PURCHASES (SAFE DATE HANDLING) ------------------
 def load_fuel_purchases():
@@ -187,39 +187,73 @@ current_price = historical_prices['price'].iloc[-1] if not historical_prices.emp
 
 # ------------------ GENERATOR DATA PROCESSING ------------------
 @st.cache_data(show_spinner=False)
-def process_generator_data(_gen_df: pd.DataFrame):
-    if _gen_df.empty:
-        return pd.DataFrame(), {}
-    df = _gen_df.copy()
-    df.columns = df.columns.str.lower()
-    time_col = [c for c in df.columns if 'time' in c or 'date' in c or 'last_changed' in c][0]
-    fuel_col = [c for c in df.columns if 'fuel' in c][0]
-    runtime_col = [c for c in df.columns if 'run' in c][0]
-    df[time_col] = pd.to_datetime(df[time_col])
-    df = df.sort_values(time_col)
-    df['fuel_l'] = pd.to_numeric(df[fuel_col], errors='coerce')
-    df['runtime_h'] = pd.to_numeric(df[runtime_col], errors='coerce')
-    df['fuel_used_l'] = -df['fuel_l'].diff().clip(lower=0)
-    df['runtime_used_h'] = df['runtime_h'].diff().clip(lower=0)
-    daily = df.resample('D', on=time_col).agg({
-        'fuel_used_l': 'sum',
-        'runtime_used_h': 'sum'
-    }).reset_index().rename(columns={time_col: 'last_changed'})
-    daily['liters_per_hour'] = daily.apply(lambda r: r['fuel_used_l'] / r['runtime_used_h'] if r['runtime_used_h'] > 0 else 0, axis=1)
+def process_generator_data(gen_df: pd.DataFrame, fuel_level_df: pd.DataFrame, history_df: pd.DataFrame, fuel_purchases: pd.DataFrame):
+    # Process gen (2).csv - Cumulative fuel consumed
+    if not gen_df.empty:
+        gen_df = gen_df.copy()
+        gen_df['last_changed'] = pd.to_datetime(gen_df['last_changed'])
+        gen_df = gen_df.sort_values('last_changed')
+        gen_df['fuel_consumed'] = gen_df['state'].diff().clip(lower=0).fillna(0)
+    else:
+        gen_df = pd.DataFrame()
+
+    # Process history (5).csv - Fuel level start (tank level)
+    if not fuel_level_df.empty:
+        fuel_level_df = fuel_level_df.copy()
+        fuel_level_df['last_changed'] = pd.to_datetime(fuel_level_df['last_changed'])
+        fuel_level_df = fuel_level_df.sort_values('last_changed')
+        fuel_level_df['fuel_level_change'] = -fuel_level_df['state'].diff().clip(lower=0).fillna(0)  # Negative diff for consumption
+        fuel_level_df['refill'] = fuel_level_df['state'].diff() > 0
+    else:
+        fuel_level_df = pd.DataFrame()
+
+    # Process history.csv - Runtime duration
+    if not history_df.empty:
+        history_df = history_df.copy()
+        history_df['last_changed'] = pd.to_datetime(history_df['last_changed'])
+        history_df = history_df.sort_values('last_changed')
+        history_df['runtime_change'] = history_df['state'].diff().clip(lower=0).fillna(0)
+    else:
+        history_df = pd.DataFrame()
+
+    # Merge all generator data on time
+    all_gen = pd.concat([gen_df, fuel_level_df, history_df], ignore_index=True, sort=False)
+    all_gen = all_gen.sort_values('last_changed').drop_duplicates(subset=['last_changed'], keep='last')
+
+    # Fill missing columns with 0
+    all_gen['fuel_consumed'] = all_gen.get('fuel_consumed', 0).fillna(0)
+    all_gen['fuel_level_change'] = all_gen.get('fuel_level_change', 0).fillna(0)
+    all_gen['runtime_change'] = all_gen.get('runtime_change', 0).fillna(0)
+
+    # Daily aggregation
+    daily = all_gen.resample('D', on='last_changed').agg({
+        'fuel_consumed': 'sum',
+        'fuel_level_change': 'sum',
+        'runtime_change': 'sum',
+        'refill': 'sum'
+    }).reset_index()
+
+    # Fuel efficiency calculation: use max of fuel_consumed or fuel_level_change for accuracy
+    daily['fuel_used_l'] = daily[['fuel_consumed', 'fuel_level_change']].max(axis=1)
+    daily['runtime_h'] = daily['runtime_change']
+    daily['liters_per_hour'] = daily.apply(lambda r: r['fuel_used_l'] / r['runtime_h'] if r['runtime_h'] > 0 else 0, axis=1)
     daily['month'] = daily['last_changed'].dt.to_period('M').dt.to_timestamp()
     daily = daily.merge(historical_prices[['month', 'price']], on='month', how='left')
     daily['price_final'] = daily['price'].fillna(current_price)
     daily['daily_cost_r'] = daily['fuel_used_l'] * daily['price_final']
     daily.drop(columns=['month', 'price'], inplace=True)
+
     totals = {
         "total_cost_r": daily['daily_cost_r'].sum(),
         "total_fuel_l": daily['fuel_used_l'].sum(),
-        "total_runtime_h": daily['runtime_used_h'].sum(),
-        "avg_liters_per_hour": daily['liters_per_hour'][daily['liters_per_hour'] > 0].mean() if (daily['liters_per_hour'] > 0).any() else 0
+        "total_runtime_h": daily['runtime_h'].sum(),
+        "avg_liters_per_hour": daily['liters_per_hour'][daily['liters_per_hour'] > 0].mean() if (daily['liters_per_hour'] > 0).any() else 0,
+        "total_refills": daily['refill'].sum()
     }
+
     return daily, totals
 
-daily_gen, totals = process_generator_data(gen_df)
+daily_gen, totals = process_generator_data(gen_df, fuel_level_df, history_df, fuel_purchases)
 if not daily_gen.empty:
     filtered_gen = daily_gen[
         (daily_gen['last_changed'].dt.date >= start_date) &
@@ -228,8 +262,9 @@ if not daily_gen.empty:
     filtered_totals = {
         "total_cost_r": filtered_gen['daily_cost_r'].sum(),
         "total_fuel_l": filtered_gen['fuel_used_l'].sum(),
-        "total_runtime_h": filtered_gen['runtime_used_h'].sum(),
-        "avg_liters_per_hour": filtered_gen['liters_per_hour'][filtered_gen['liters_per_hour'] > 0].mean() if (filtered_gen['liters_per_hour'] > 0).any() else 0
+        "total_runtime_h": filtered_gen['runtime_h'].sum(),
+        "avg_liters_per_hour": filtered_gen['liters_per_hour'][filtered_gen['liters_per_hour'] > 0].mean() if (filtered_gen['liters_per_hour'] > 0).any() else 0,
+        "total_refills": filtered_gen['refill'].sum()
     }
 else:
     filtered_gen = pd.DataFrame()
@@ -251,7 +286,7 @@ with tab1:
         cols[2].metric("Runtime", f"{filtered_totals['total_runtime_h']:.1f} h")
         cols[3].metric("Avg Liters per Hour", f"{filtered_totals['avg_liters_per_hour']:.2f} L/h")
         cols[4].metric("Daily Avg Cost", f"R {filtered_gen['daily_cost_r'].mean():,.0f}")
-        cols[5].metric("Days Run", f"{(filtered_gen['runtime_used_h'] > 0).sum()}")
+        cols[5].metric("Refills", f"{filtered_totals['total_refills']}")
         fig = px.bar(filtered_gen, x='last_changed', y='fuel_used_l', text='fuel_used_l', color_discrete_sequence=["#4fd1c5"])
         fig.add_scatter(x=filtered_gen['last_changed'], y=filtered_gen['liters_per_hour'] * 20, mode="lines+markers", name="L/h (scaled x20)", line=dict(color="#f97316", width=3))
         fig.update_layout(
